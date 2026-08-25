@@ -94,6 +94,16 @@ export class WebCrawler {
     try {
       this.log('Creating new page...');
       page = await this.context!.newPage();
+
+      // 注入 stealth 反检测脚本
+      if (config.stealthMode) {
+        await page.addInitScript(() => {
+          Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+          Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+          Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en'] });
+          (window as any).chrome = { runtime: {}, loadTimes: () => {}, csi: () => {} };
+        });
+      }
       
       // Navigate to the URL with timeout
       const timeout = config.timeout || 30000;
@@ -120,7 +130,7 @@ export class WebCrawler {
       this.log('Page loaded successfully');
       
       this.log('Extracting data using rules:', config.rules);
-      const { rawData, processedData } = await this.extractData(page);
+      const { rawData, processedData } = await this.extractData(page, config);
       this.log('Data extracted successfully:', { raw: rawData, processed: processedData });
       
       const crawlerData: CrawlerData = {
@@ -165,11 +175,11 @@ export class WebCrawler {
     this.log(`Current data count for ${siteName}: ${this.crawledData.get(siteName)?.length}`);
   }
 
-  private async extractData(page: Page): Promise<{ rawData: Record<string, any>, processedData: Record<string, any> }> {
+  private async extractData(page: Page, config?: SiteConfig): Promise<{ rawData: Record<string, any>, processedData: Record<string, any> }> {
     const rawData: Record<string, any> = {};
     const processedData: Record<string, any> = {};
-    const rules = crawlerConfigs.find(config => {
-      return config.url === page.url() || (config.urlPattern && new RegExp(config.urlPattern).test(page.url()))
+    const rules = config?.rules || crawlerConfigs.find(c => {
+      return c.url === page.url() || (c.urlPattern && new RegExp(c.urlPattern).test(page.url()))
     })?.rules;
 
     for (const [key, rule] of Object.entries(rules || [])) {
@@ -225,7 +235,7 @@ export class WebCrawler {
       }
     }
 
-    return { rawData: {}, processedData };
+    return { rawData, processedData };
   }
 
   async crawl(config: SiteConfig & { params?: Record<string, string> }): Promise<void> {

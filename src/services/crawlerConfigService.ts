@@ -90,9 +90,7 @@ export class CrawlerConfigService {
     headless: boolean;
     args: string[];
   } {
-    const browserConfig = this.getBrowserConfig(siteConfig);
-    
-    return {
+    const browserConfig = this.getBrowserConfig(siteConfig);      return {
       headless: browserConfig.headless!,
       args: [
         `--user-agent="${browserConfig.userAgent}"`,
@@ -102,7 +100,8 @@ export class CrawlerConfigService {
         '--disable-accelerated-2d-canvas',
         '--no-first-run',
         '--no-zygote',
-        '--disable-gpu'
+        '--disable-gpu',
+        '--disable-blink-features=AutomationControlled',
       ]
     };
   }
