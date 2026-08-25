@@ -37,10 +37,63 @@ export interface SiteConfig {
   maxRequestsPerCrawl?: number;
   maxConcurrency?: number;
   timeout?: number;
+  waitForSelector?: string;  // 动态渲染页面：等待该选择器出现后再提取数据
   browserConfig?: BrowserConfig;  // 浏览器配置
 }
 
 export const crawlerConfigs: SiteConfig[] = [
+  {
+    url: 'https://www.zhaopin.com/jobs',
+    name: 'zhaopin-jobs',
+    urlPattern: '^https://www\\.zhaopin\\.com/jobs.*$',
+    urlBuilder: (url, params, paramsConfig) => {
+      const { keyword, city, page } = params;
+      const { cityCode } = paramsConfig;
+      const code = (cityCode && cityCode.rule && cityCode.rule[city]) ? cityCode.rule[city] : '489';
+      return `https://www.zhaopin.com/jobs?jl=${code}&kw=${encodeURIComponent(keyword || '')}&p=${page || 1}`;
+    },
+    config: {
+      cityCode: {
+        name: 'cityCode',
+        description: '城市编码',
+        type: 'string',
+        default: '489',
+        rule: {
+          '北京': '489', '上海': '538', '广州': '763', '深圳': '765',
+          '杭州': '801', '南京': '635', '武汉': '636', '成都': '725',
+          '西安': '854', '天津': '531', '苏州': '738', '重庆': '551',
+          '长沙': '749', '郑州': '719', '东莞': '393', '宁波': '689',
+          '厦门': '686', '合肥': '597', '济南': '702',
+          '青岛': '723', '大连': '650', '沈阳': '621', '福州': '536',
+          '昆明': '744', '贵阳': '733', '哈尔滨': '690', '无锡': '770',
+          '佛山': '616', '珠海': '797', '中山': '773', '常州': '709',
+          '徐州': '643', '嘉兴': '750', '南昌': '660', '石家庄': '800',
+          '烟台': '591', '南通': '816', '太原': '530', '长春': '742',
+          '温州': '820', '绍兴': '825', '台州': '771', '泉州': '676',
+          '海口': '806', '南宁': '672', '兰州': '712', '扬州': '848',
+          '三亚': '865', '惠州': '830'
+        }
+      }
+    },
+    rules: {
+      jobInfo: {
+        selector: '.job-card',
+        type: 'html',
+        handler: async (currentData, value, element) => {
+          const title = await element.$eval('[class*="title"] .vue-clamp__text, .job-card__title-clamp span[aria-label]', el => el.textContent?.trim() || '').catch(() => '');
+          const salary = await element.$eval('.job-card__salary', el => el.textContent?.trim() || '').catch(() => '');
+          const company = await element.$eval('.job-card__company-name', el => el.textContent?.trim() || '').catch(() => '');
+          const address = await element.$eval('.job-card__location span', el => el.textContent?.trim() || '').catch(() => '');
+          const tags = await element.$$eval('.job-card__skill-tag', els => els.map(el => el.textContent?.trim() || '')).catch(() => []);
+          // 智联搜索页卡片只有公司链接没有职位详情链接（JS 事件），暂留空
+          return { title, salary, company, address, jobDetail: '', tags };
+        }
+      }
+    },
+    maxRequestsPerCrawl: 1,
+    maxConcurrency: 1,
+    timeout: 60000
+  },
   {
     url: 'https://www.liepin.com/zhaopin/',
     name: 'liepin',
@@ -259,6 +312,39 @@ export const crawlerConfigs: SiteConfig[] = [
         }
       }
     }
+  },
+  {
+    url: 'https://www.51job.com/',
+    name: '51job',
+    urlPattern: '^https://we\\.51job\\.com/pc/search.*$',
+    urlBuilder: (url, params, paramsConfig) => {
+      const { keyword, page } = params;
+      // searchJobList 会把 keyword 和 city 拼在一起（如 "前端开发 北京"），51job 只需要关键词部分
+      const key = keyword ? keyword.split(' ')[0] : '';
+      return `https://we.51job.com/pc/search?keyword=${encodeURIComponent(key)}&searchType=2&sortType=0&metro=&pageNum=${page || 1}`;
+    },
+    rules: {
+      jobInfo: {
+        selector: '.joblist-item',
+        type: 'html',
+        handler: async (currentData, value, element) => {
+          const title = await element.$eval('.jname', el => el.textContent?.trim() || '');
+          const salary = await element.$eval('.sal', el => el.textContent?.trim() || '');
+          const company = await element.$eval('.cname', el => el.textContent?.trim() || '');
+          const address = await element.$eval('.area', el => el.textContent?.trim() || '');
+          const jobDetail = await element.$eval('a', el => {
+            const href = el.getAttribute('href') || '';
+            return href.startsWith('http') ? href : `https://we.51job.com${href}`;
+          });
+          const tags = await element.$$eval('.tag', els => els.map(el => el.textContent?.trim() || ''));
+          return { title, salary, company, address, jobDetail, tags };
+        }
+      }
+    },
+    waitForSelector: '.joblist-item',
+    maxRequestsPerCrawl: 1,
+    maxConcurrency: 1,
+    timeout: 30000
   },
   {
     url: '',

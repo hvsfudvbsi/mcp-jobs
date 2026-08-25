@@ -108,6 +108,15 @@ export class WebCrawler {
       // 等待一小段时间确保动态内容加载
       await page.waitForTimeout(2000);
       
+      // 若配置了 waitForSelector，等待目标元素出现（适配异步渲染页面）
+      if (config.waitForSelector) {
+        try {
+          await page.waitForSelector(config.waitForSelector, { timeout: 15000 });
+        } catch (error) {
+          this.log(`waitForSelector "${config.waitForSelector}" timed out`, error);
+        }
+      }
+      
       this.log('Page loaded successfully');
       
       this.log('Extracting data using rules:', config.rules);
