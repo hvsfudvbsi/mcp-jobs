@@ -41,6 +41,10 @@ const WEB_UI_HTML = `<!DOCTYPE html>
   button { padding: 9px 26px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; }
   button:disabled { background: #93b4f5; cursor: wait; }
   .status { margin: 12px 2px; color: #666; font-size: 14px; min-height: 20px; }
+  .export-bar { display: none; gap: 10px; margin: 0 2px 12px; align-items: center; }
+  .export-bar.show { display: flex; }
+  .export-bar button { background: #fff; color: #2563eb; border: 1px solid #2563eb; padding: 6px 16px; font-size: 13px; }
+  .export-bar button:hover { background: #eff6ff; }
   table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
   th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid #eef1f5; font-size: 14px; vertical-align: top; }
   th { background: #f0f4f8; color: #555; font-weight: 600; white-space: nowrap; }
@@ -63,6 +67,11 @@ const WEB_UI_HTML = `<!DOCTYPE html>
     <button id="btn" type="submit">搜 索</button>
   </form>
   <div class="status" id="status">提示：搜索会实时爬取多个招聘网站，可能需要 30~90 秒。</div>
+  <div class="export-bar" id="exportBar">
+    <span style="color:#999;font-size:13px">导出结果：</span>
+    <button type="button" onclick="exportData('csv')">⬇ 导出 CSV</button>
+    <button type="button" onclick="exportData('json')">⬇ 导出 JSON</button>
+  </div>
   <table id="tbl" style="display:none">
     <thead><tr><th>职位</th><th>公司</th><th>薪资</th><th>地点</th><th>发布时间</th></tr></thead>
     <tbody id="tbody"><tr><td colspan="5" class="empty">暂无结果</td></tr></tbody>
@@ -81,7 +90,9 @@ $('#f').addEventListener('submit', async e => {
     const r = await fetch('/api/search?' + q.toString());
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
-    render(data.jobs || []);
+    lastJobs = data.jobs || [];
+    render(lastJobs);
+    $('#exportBar').classList.toggle('show', lastJobs.length > 0);
     $('#status').textContent = '✅ 共找到 ' + (data.total || 0) + ' 个职位';
   } catch (err) {
     $('#status').textContent = '❌ 搜索失败：' + err.message;
@@ -89,6 +100,29 @@ $('#f').addEventListener('submit', async e => {
     $('#btn').disabled = false;
   }
 });
+let lastJobs = [];
+const EXPORT_FIELDS = ['title', 'company', 'salary', 'address', 'jobDetail', 'tags'];
+const EXPORT_HEADERS = ['职位', '公司', '薪资', '地点', '详情链接', '标签'];
+function csvCell(v) {
+  const s = Array.isArray(v) ? v.join(' | ') : String(v ?? '');
+  return '"' + s.replace(/"/g, '""') + '"';
+}
+function exportData(fmt) {
+  if (!lastJobs.length) return;
+  let blob;
+  if (fmt === 'csv') {
+    const rows = [EXPORT_HEADERS].concat(lastJobs.map(j => EXPORT_FIELDS.map(f => csvCell(j[f]))));
+    // BOM 头，保证 Excel 打开 CSV 中文不乱码
+    blob = new Blob(['\\uFEFF' + rows.map(r => r.join(',')).join('\\r\\n')], { type: 'text/csv;charset=utf-8' });
+  } else {
+    blob = new Blob([JSON.stringify(lastJobs, null, 2)], { type: 'application/json;charset=utf-8' });
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'mcp-jobs-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.' + fmt;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 function esc(s) { return String(s ?? '').replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\\"':'&quot;',"'":'&#39;'}[c])); }
 function render(jobs) {
   const tb = $('#tbody');
