@@ -318,4 +318,101 @@ export const crawlerConfigs: SiteConfig[] = [
       }
     }
   },
+  // ===== 2026-08 新增站点（实验性，选择器需探测验证） =====
+  {
+    url: 'https://www.nowcoder.com/job/center',
+    name: 'nowcoder',
+    urlPattern: '^https://www\\.nowcoder\\.com/job/center.*$',
+    urlBuilder: (url, params, paramsConfig) => {
+      const { keyword, page } = params;
+      const kw = keyword ? keyword.split(' ')[0] : '';
+      return `https://www.nowcoder.com/job/center?recruitType=1&keyword=${encodeURIComponent(kw)}&page=${page || 1}`;
+    },
+    rules: {
+      jobInfo: {
+        selector: '.job-item',
+        type: 'html',
+        handler: async (currentData, value, element) => {
+          const title = await element.$eval('.job-name, .job-title, [class*="title"]', el => el.textContent?.trim() || '') as string;
+          const salary = await element.$eval('.job-salary, [class*="salary"], [class*="wage"]', el => el.textContent?.trim() || '') as string;
+          const company = await element.$eval('.company-name, [class*="company"]', el => el.textContent?.trim() || '') as string;
+          const address = await element.$eval('.job-address, [class*="location"], [class*="city"]', el => el.textContent?.trim() || '') as string;
+          const jobDetail = await element.$eval('a', (el: any) => {
+            const href = el.getAttribute('href') || '';
+            return href.startsWith('http') ? href : `https://www.nowcoder.com${href}`;
+          }) as string;
+          const tags: string[] = await element.$$eval('.job-tag, [class*="tag"], [class*="label"]', (els: any[]) => els.map((el: any) => el.textContent?.trim() || ''));
+          return { title, salary, company, address, jobDetail, tags };
+        }
+      }
+    },
+    waitForSelector: '.job-item',
+    maxRequestsPerCrawl: 1,
+    maxConcurrency: 1,
+    timeout: 30000
+  },
+  {
+    url: 'https://www.shixiseng.com/interns',
+    name: 'shixiseng',
+    urlPattern: '^https://www\\.shixiseng\\.com/interns.*$',
+    urlBuilder: (url, params, paramsConfig) => {
+      const { keyword, page } = params;
+      const kw = keyword ? keyword.split(' ')[0] : '';
+      return `https://www.shixiseng.com/interns?keyword=${encodeURIComponent(kw)}&page=${page || 1}&type=intern`;
+    },
+    rules: {
+      jobInfo: {
+        selector: '.intern-item',
+        type: 'html',
+        handler: async (currentData, value, element) => {
+          const title = await element.$eval('.intern-title, .job-title, [class*="title"]', el => el.textContent?.trim() || '') as string;
+          const salary = await element.$eval('.intern-salary, [class*="salary"], [class*="wage"]', el => el.textContent?.trim() || '') as string;
+          const company = await element.$eval('.company-name, [class*="company"]', el => el.textContent?.trim() || '') as string;
+          const address = await element.$eval('.intern-address, [class*="location"], [class*="city"]', el => el.textContent?.trim() || '') as string;
+          const jobDetail = await element.$eval('a', (el: any) => {
+            const href = el.getAttribute('href') || '';
+            return href.startsWith('http') ? href : `https://www.shixiseng.com${href}`;
+          }) as string;
+          const tags: string[] = await element.$$eval('.intern-tag, [class*="tag"], [class*="label"]', (els: any[]) => els.map((el: any) => el.textContent?.trim() || ''));
+          return { title, salary, company, address, jobDetail, tags };
+        }
+      }
+    },
+    waitForSelector: '.intern-item',
+    maxRequestsPerCrawl: 1,
+    maxConcurrency: 1,
+    timeout: 30000
+  },
+  {
+    url: 'https://www.yingjiesheng.com/commence',
+    name: 'yingjiesheng',
+    urlPattern: '^https://www\\.yingjiesheng\\.com/commence.*$',
+    urlBuilder: (url, params, paramsConfig) => {
+      const { keyword, page } = params;
+      const kw = keyword ? keyword.split(' ')[0] : '';
+      return `https://www.yingjiesheng.com/commence-search.html?keyword=${encodeURIComponent(kw)}&page=${page || 1}`;
+    },
+    rules: {
+      jobInfo: {
+        selector: '.job-item',
+        type: 'html',
+        handler: async (currentData, value, element) => {
+          const title = await element.$eval('.job-title, [class*="title"], a[class*="name"]', el => el.textContent?.trim() || '') as string;
+          const salary = await element.$eval('[class*="salary"], [class*="wage"]', el => el.textContent?.trim() || '') as string;
+          const company = await element.$eval('.company-name, [class*="company"]', el => el.textContent?.trim() || '') as string;
+          const address = await element.$eval('[class*="address"], [class*="location"], [class*="city"]', el => el.textContent?.trim() || '') as string;
+          const jobDetail = await element.$eval('a', (el: any) => {
+            const href = el.getAttribute('href') || '';
+            return href.startsWith('http') ? href : `https://www.yingjiesheng.com${href}`;
+          }) as string;
+          const tags: string[] = await element.$$eval('[class*="tag"], [class*="label"]', (els: any[]) => els.map((el: any) => el.textContent?.trim() || ''));
+          return { title, salary, company, address, jobDetail, tags };
+        }
+      }
+    },
+    waitForSelector: '.job-item',
+    maxRequestsPerCrawl: 1,
+    maxConcurrency: 1,
+    timeout: 30000
+  },
 ];
