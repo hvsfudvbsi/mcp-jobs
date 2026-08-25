@@ -318,39 +318,27 @@ export const crawlerConfigs: SiteConfig[] = [
       }
     }
   },
-  // ===== 2026-08 新增站点（实验性，选择器需探测验证） =====
-  {
-    url: 'https://www.nowcoder.com/job/center',
-    name: 'nowcoder',
-    urlPattern: '^https://www\\.nowcoder\\.com/job/center.*$',
-    urlBuilder: (url, params, paramsConfig) => {
-      const { keyword, page } = params;
-      const kw = keyword ? keyword.split(' ')[0] : '';
-      return `https://www.nowcoder.com/job/center?recruitType=1&keyword=${encodeURIComponent(kw)}&page=${page || 1}`;
-    },
-    rules: {
-      jobInfo: {
-        selector: '.job-item',
-        type: 'html',
-        handler: async (currentData, value, element) => {
-          const title = await element.$eval('.job-name, .job-title, [class*="title"]', el => el.textContent?.trim() || '') as string;
-          const salary = await element.$eval('.job-salary, [class*="salary"], [class*="wage"]', el => el.textContent?.trim() || '') as string;
-          const company = await element.$eval('.company-name, [class*="company"]', el => el.textContent?.trim() || '') as string;
-          const address = await element.$eval('.job-address, [class*="location"], [class*="city"]', el => el.textContent?.trim() || '') as string;
-          const jobDetail = await element.$eval('a', (el: any) => {
-            const href = el.getAttribute('href') || '';
-            return href.startsWith('http') ? href : `https://www.nowcoder.com${href}`;
-          }) as string;
-          const tags: string[] = await element.$$eval('.job-tag, [class*="tag"], [class*="label"]', (els: any[]) => els.map((el: any) => el.textContent?.trim() || ''));
-          return { title, salary, company, address, jobDetail, tags };
-        }
-      }
-    },
-    waitForSelector: '.job-item',
-    maxRequestsPerCrawl: 1,
-    maxConcurrency: 1,
-    timeout: 30000
-  },
+  // ===== 2026-08 新增站点（实验性 / 禁用） =====
+  //
+  // 牛客网 nowcoder — ❌ 阿里云 WAF 拦截
+  //   URL: https://www.nowcoder.com/job/center?recruitType=1
+  //   API: POST /np-api/u/job/square-search
+  //     body: requestFrom=1&page=1&pageSize=20&recruitType=2&pageSource=5001&query=${keyword}
+  //     返回: WAF 验证码 HTML，无法获取 JSON 结果
+  //   输入框: .input-search-filter input (placeholder="请输入公司名或职位名搜索")
+  //   弹窗拦截: .el-dialog__wrapper + .v-modal
+  //   Vue SPA，交互式搜索（输入关键词后 Enter 触发 square-search POST）
+  // {
+  //   url: 'https://www.nowcoder.com/job/center',
+  //   name: 'nowcoder',
+  //   urlPattern: '^https://www\\.nowcoder\\.com/job/center.*$',
+  //   urlBuilder: (url, params, paramsConfig) => {
+  //     const { keyword, page } = params;
+  //     const kw = keyword ? keyword.split(' ')[0] : '';
+  //     return `https://www.nowcoder.com/job/center?recruitType=1&keyword=${encodeURIComponent(kw)}&page=${page || 1}`;
+  //   },
+  //   ...
+  // },
   {
     url: 'https://www.shixiseng.com/interns',
     name: 'shixiseng',

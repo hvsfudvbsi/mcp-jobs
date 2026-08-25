@@ -5,7 +5,7 @@
 // - BOSS直聘（m.zhipin.com）：⚠️ 实验性，stealth 模式受 IP 限速，不稳定
 // - 猎聘（liepin.com）：❌ IP 级封禁
 // - 拉勾（lagou.com）：❌ 阿里云 WAF 拦截
-// - 牛客网（nowcoder.com）：⏳ 待验证
+// - 牛客网（nowcoder.com）：❌ 阿里云 WAF 拦截（API square-search 返回验证码）
 // - 脉脉（maimai.cn）：❌ 需登录 + 强反爬
 // - 应届生求职网（yingjiesheng.com）：⏳ 待验证
 // - 实习僧（shixiseng.com）：⏳ 待验证
@@ -28,19 +28,20 @@ export const jobSearchUrls = [
     url: 'https://m.zhipin.com/c100010000',
     name: 'zhipin',
   },
-  {
-    url: 'https://www.nowcoder.com/job/center',
-    name: 'nowcoder',
-  },
-  {
-    url: 'https://www.shixiseng.com/interns',
-    name: 'shixiseng',
-  },
-  {
-    url: 'https://www.yingjiesheng.com/commence',
-    name: 'yingjiesheng',
-  },
+  // 以下站点实验性支持（选择器待探测验证）
+  // {
+  //   url: 'https://www.shixiseng.com/interns',
+  //   name: 'shixiseng',
+  // },
+  // {
+  //   url: 'https://www.yingjiesheng.com/commence',
+  //   name: 'yingjiesheng',
+  // },
   // 以下站点因反爬限制暂不可用
+  // {
+  //   url: 'https://www.nowcoder.com/job/center',
+  //   name: 'nowcoder',
+  // },
   // {
   //   url: 'https://www.liepin.com/zhaopin/',
   //   name: 'liepin',
