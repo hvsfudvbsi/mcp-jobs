@@ -44,12 +44,14 @@ export class WebCrawler {
     if (!this.browser) {
       this.log('Launching browser...');
 
-      // 获取浏览器启动配置
-      const launchOptions = crawlerConfigService.getBrowserLaunchOptions(
-        this.currentSiteConfig?.browserConfig
-      );
-
-      this.log(`Browser launch options: headless=${launchOptions.headless}`);
+      const launchOptions = {
+        headless: true,
+        args: [
+          '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas', '--no-first-run', '--no-zygote', '--disable-gpu',
+          '--disable-blink-features=AutomationControlled',
+        ],
+      };
 
       this.browser = await chromium.launch(launchOptions);
       this.log('Browser launched');
@@ -58,10 +60,17 @@ export class WebCrawler {
     if (!this.context) {
       this.log('Creating browser context...');
 
-      // 获取浏览器上下文配置
-      const contextOptions = crawlerConfigService.getBrowserContextOptions(
-        this.currentSiteConfig?.browserConfig
-      );
+      const bc = this.currentSiteConfig?.browserConfig;
+      const contextOptions: any = {
+        viewport: bc?.viewport || { width: 1280, height: 800 },
+        userAgent: bc?.userAgent || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.81 Safari/537.36',
+        locale: 'zh-CN',
+      };
+      if (bc?.isMobile) {
+        contextOptions.isMobile = true;
+        contextOptions.hasTouch = true;
+      }
+      console.log('[context] vp=', JSON.stringify(contextOptions.viewport), 'mobile=', contextOptions.isMobile);
 
       this.context = await this.browser.newContext(contextOptions);
       this.log('Browser context created');
@@ -90,6 +99,8 @@ export class WebCrawler {
     }
     
     let page: Page | null = null;
+    // Stealth 模式下在轮询中提取的数据，跳过后续 extractData
+    let stealthExtracted: { rawData: Record<string, any>, processedData: Record<string, any> } | null = null;
     
     try {
       this.log('Creating new page...');
@@ -109,28 +120,59 @@ export class WebCrawler {
       const timeout = config.timeout || 30000;
       this.log(`Navigating to ${url} with timeout ${timeout}ms`);
       
-      // 只使用一次网络等待，并设置更合理的等待条件
-      await page.goto(url, { 
-        waitUntil: 'domcontentloaded', // 改为等待 DOM 加载完成
-        timeout: timeout
-      });
-      
-      // 等待一小段时间确保动态内容加载
-      await page.waitForTimeout(2000);
-      
-      // 若配置了 waitForSelector，等待目标元素出现（适配异步渲染页面）
-      if (config.waitForSelector) {
-        try {
-          await page.waitForSelector(config.waitForSelector, { timeout: 15000 });
-        } catch (error) {
-          this.log(`waitForSelector "${config.waitForSelector}" timed out`, error);
+      if (config.stealthMode) {
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeout });
+        
+        // 完全复制测试的 evaluate 轮询方式
+        const sel = config.waitForSelector || 'body';
+        for (let i = 0; i < 40; i++) {
+          await page.waitForTimeout(500);
+          try {
+            const status: any = await page.evaluate((s) => {
+              const u = window.location.href;
+              if (u === 'about:blank') return { state: 'blank' };
+              if (u.includes('security') || u.includes('passport')) return { state: 'security' };
+              const count = document.querySelectorAll(s).length;
+              return { state: count > 0 ? 'ready' : 'waiting', count };
+            }, sel);
+            if (status.state === 'ready') {
+              console.log(`[stealth] ready after ${(i+1)*0.5}s (${status.count} items)`);
+              stealthExtracted = await this.extractData(page, config);
+              break;
+            }
+            if (status.state === 'blank' && i > 10) break;
+          } catch {
+            // eval error during transition, retry
+          }
         }
+        if (!stealthExtracted) {
+          console.log('[stealth] did not stabilize');
+        }
+      } else {
+        // 正常模式
+        await page.goto(url, { 
+          waitUntil: 'domcontentloaded',
+          timeout: timeout
+        });
+        
+        await page.waitForTimeout(2000);
+        
+        if (config.waitForSelector) {
+          try {
+            await page.waitForSelector(config.waitForSelector, { timeout: 15000 });
+          } catch (error) {
+            this.log(`waitForSelector "${config.waitForSelector}" timed out`, error);
+          }
+        }
+        
+        // 小延迟让 AJAX/SPA 完成渲染
+        await page.waitForTimeout(500);
       }
       
       this.log('Page loaded successfully');
       
       this.log('Extracting data using rules:', config.rules);
-      const { rawData, processedData } = await this.extractData(page, config);
+      const { rawData, processedData } = stealthExtracted || await this.extractData(page, config);
       this.log('Data extracted successfully:', { raw: rawData, processed: processedData });
       
       const crawlerData: CrawlerData = {

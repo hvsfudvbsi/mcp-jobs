@@ -16,6 +16,8 @@ export interface BrowserConfig {
   };
   userAgent?: string;    // 用户代理
   initScript?: string;   // 页面加载前注入的反检测脚本
+  isMobile?: boolean;    // 移动端模式
+  hasTouch?: boolean;    // 触摸支持
 }
 
 export interface SiteConfig {
@@ -197,6 +199,12 @@ export const crawlerConfigs: SiteConfig[] = [
     url: 'https://m.zhipin.com/c100010000',
     name: 'zhipin',
     urlPattern: '^https://m\\.zhipin\\.com/c100010000.*$',
+    browserConfig: {
+      viewport: { width: 390, height: 844 },
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      isMobile: true,
+      hasTouch: true,
+    },
     urlBuilder: (url, params, paramsConfig) => {
       const { keyword, page } = params;
       const kw = keyword ? keyword.split(' ')[0] : '';
@@ -228,7 +236,7 @@ export const crawlerConfigs: SiteConfig[] = [
     },
     waitForSelector: 'li.item',
     stealthMode: true,
-    timeout: 30000,
+    timeout: 60000,
     maxRequestsPerCrawl: 1,
     maxConcurrency: 1,
   },
@@ -269,6 +277,12 @@ export const crawlerConfigs: SiteConfig[] = [
     url: '',
     name: 'zhipin-detail',
     urlPattern: '^https://m\\.zhipin\\.com/job_detail/.*$',
+    browserConfig: {
+      viewport: { width: 390, height: 844 },
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      isMobile: true,
+      hasTouch: true,
+    },
     urlBuilder: (url, params, paramsConfig) => {
       return url;
     },

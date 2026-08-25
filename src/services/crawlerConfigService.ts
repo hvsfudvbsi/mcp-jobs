@@ -112,12 +112,18 @@ export class CrawlerConfigService {
   public getBrowserContextOptions(siteConfig?: BrowserConfig): {
     viewport: { width: number; height: number };
     userAgent: string;
+    locale?: string;
+    isMobile?: boolean;
+    hasTouch?: boolean;
   } {
     const browserConfig = this.getBrowserConfig(siteConfig);
     
     return {
       viewport: browserConfig.viewport!,
       userAgent: browserConfig.userAgent!,
+      locale: 'zh-CN',
+      isMobile: siteConfig?.isMobile,
+      hasTouch: siteConfig?.hasTouch,
     };
   }
 
