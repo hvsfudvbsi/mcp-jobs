@@ -1,7 +1,15 @@
 #!/usr/bin/env node
 
+import http from 'http';
+import { webcrypto } from 'crypto';
+
+// Node 18 下全局 crypto 未默认启用，SDK 依赖它，这里做兼容 polyfill
+if (!(globalThis as any).crypto) {
+  (globalThis as any).crypto = webcrypto;
+}
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {
   Tool,
   CallToolRequestSchema,
@@ -94,8 +102,9 @@ function isValidJobDetailParams(args: unknown): args is JobDetailParams {
 }
 
 
-// 初始化服务器实例
-const server = new Server(
+// 创建 MCP 服务器实例的工厂函数（HTTP 无状态模式下每个请求创建独立实例）
+function createMcpServer(): Server {
+  const server = new Server(
   {
     name: 'mcp-jobs',
     version: '1.0.0',
@@ -290,29 +299,116 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     });
   }
 });
+  return server;
+}
 
-// 启动服务器
-async function runServer() {
+// 启动 stdio 模式服务器（默认，供 Cursor / Claude Desktop 等 AI 客户端使用）
+async function runStdioServer() {
+  const server = createMcpServer();
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+
+  server.sendLoggingMessage({
+    level: 'info',
+    data: '职位搜索服务初始化成功',
+  });
+
+  console.error('职位搜索服务已启动（stdio 模式），正在运行中...');
+}
+
+// 启动 HTTP 模式服务器（通过 --http 参数或 MCP_HTTP=1 环境变量开启）
+async function runHttpServer(port: number, host: string) {
+  const httpServer = http.createServer(async (req, res) => {
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Mcp-Session-Id, Mcp-Protocol-Version, Authorization',
+    };
+
+    // CORS 预检请求
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, corsHeaders);
+      res.end();
+      return;
+    }
+
+    // 健康检查 / 简单首页
+    if (req.url === '/' || req.url === '/health') {
+      res.writeHead(200, { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({
+        name: 'mcp-jobs',
+        version: '1.0.0',
+        status: 'running',
+        mcpEndpoint: `http://${req.headers.host}/mcp`,
+        tools: ['mcp_search_job', 'mcp_job_detail'],
+      }, null, 2));
+      return;
+    }
+
+    // MCP 端点：无状态模式，每个请求使用独立的 server/transport 实例
+    if (req.url === '/mcp') {
+      try {
+        const mcpServer = createMcpServer();
+        const transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: undefined,
+        });
+
+        res.on('close', () => {
+          transport.close();
+          mcpServer.close();
+        });
+
+        // 预设 CORS 响应头（writeHead 会保留未覆盖的 setHeader 项）
+        Object.entries(corsHeaders).forEach(([k, v]) => res.setHeader(k, v));
+
+        await mcpServer.connect(transport);
+        await transport.handleRequest(req, res);
+      } catch (error) {
+        console.error('处理 MCP 请求出错:', error);
+        if (!res.headersSent) {
+          res.writeHead(500, { ...corsHeaders, 'Content-Type': 'application/json' });
+        }
+        res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32603, message: 'Internal server error' }, id: null }));
+      }
+      return;
+    }
+
+    // 其他路径返回 404
+    res.writeHead(404, { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: 'Not Found', hint: '请访问 / 查看服务信息，或连接 /mcp 端点' }, null, 2));
+  });
+
+  return new Promise<void>((resolve, reject) => {
+    httpServer.on('error', reject);
+    httpServer.listen(port, host, () => {
+      console.error(`职位搜索服务已启动（HTTP 模式）`);
+      console.error(`  服务信息页面: http://${host === '0.0.0.0' ? 'localhost' : host}:${port}/`);
+      console.error(`  MCP 端点:     http://${host === '0.0.0.0' ? 'localhost' : host}:${port}/mcp`);
+      resolve();
+    });
+  });
+}
+
+async function main() {
+  const useHttp = process.argv.includes('--http') || process.env.MCP_HTTP === '1';
+  const port = parseInt(process.env.MCP_PORT || process.env.PORT || '3000', 10);
+  const host = process.env.MCP_HOST || '0.0.0.0';
+
   try {
     console.error('正在初始化职位搜索服务...');
 
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-
-    // 发送服务器启动成功日志
-    server.sendLoggingMessage({
-      level: 'info',
-      data: '职位搜索服务初始化成功',
-    });
-
-    console.error('职位搜索服务已启动，正在运行中...');
+    if (useHttp) {
+      await runHttpServer(port, host);
+    } else {
+      await runStdioServer();
+    }
   } catch (error) {
     console.error('服务器启动失败:', error);
     process.exit(1);
   }
 }
 
-runServer().catch((error: any) => {
+main().catch((error: any) => {
   console.error('服务器运行出错:', error);
   process.exit(1);
 });
