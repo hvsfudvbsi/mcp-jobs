@@ -333,19 +333,10 @@ export const crawlerConfigs: SiteConfig[] = [
   //   搜索结果返回：滑动验证页面
   //   stealth 模式也无效，与 51job 主站不同（51job 搜索页可过，应届生子域必须滑块）
   //
-  // 实习僧 shixiseng — ⏳ 待探测
-  //   URL: https://www.shixiseng.com/interns?keyword=&type=intern
-  // {
-  //   url: 'https://www.nowcoder.com/job/center',
-  //   name: 'nowcoder',
-  //   urlPattern: '^https://www\\.nowcoder\\.com/job/center.*$',
-  //   urlBuilder: (url, params, paramsConfig) => {
-  //     const { keyword, page } = params;
-  //     const kw = keyword ? keyword.split(' ')[0] : '';
-  //     return `https://www.nowcoder.com/job/center?recruitType=1&keyword=${encodeURIComponent(kw)}&page=${page || 1}`;
-  //   },
-  //   ...
-  // },
+  // 实习僧 shixiseng — ✅ 可用（Nuxt SSR，无验证码）
+  //   ⚠️ 标题和薪资使用字体混淆（PUA码位），textContent 无法提取原文
+  //   可提取: 公司、城市、行业、标签、详情URL
+  //   注意: 页面 load 事件永不触发，需 .catch() goto 超时后继续
   {
     url: 'https://www.shixiseng.com/interns',
     name: 'shixiseng',
@@ -360,23 +351,28 @@ export const crawlerConfigs: SiteConfig[] = [
         selector: '.intern-item',
         type: 'html',
         handler: async (currentData, value, element) => {
-          const title = await element.$eval('.intern-title, .job-title, [class*="title"]', el => el.textContent?.trim() || '') as string;
-          const salary = await element.$eval('.intern-salary, [class*="salary"], [class*="wage"]', el => el.textContent?.trim() || '') as string;
-          const company = await element.$eval('.company-name, [class*="company"]', el => el.textContent?.trim() || '') as string;
-          const address = await element.$eval('.intern-address, [class*="location"], [class*="city"]', el => el.textContent?.trim() || '') as string;
-          const jobDetail = await element.$eval('a', (el: any) => {
+          const titleRaw = await element.$eval('.intern-detail__job .title', el => el.textContent?.trim() || '').catch(() => '');
+          const title = (titleRaw as string).replace(/[\uE000-\uF8FF]|[\u{F0000}-\u{FFFFD}]|\udb80[\udc00-\udfff]|[\udb81-\udbbe][\udc00-\udfff]|[\udbbf][\udc00-\udffd]/gu, '').trim();
+          const salary = '';
+          const company = await element.$eval('.intern-detail__company .title', el => el.textContent?.trim() || '').catch(() => '');
+          const city = await element.$eval('.city.ellipsis', el => el.textContent?.trim() || '').catch(() => '');
+          const industry = await element.$eval('.intern-detail__company .tip .ellipsis', el => el.textContent?.trim() || '').catch(() => '');
+          const jobDetail = await element.$eval('.intern-detail__job a.title', (el: any) => {
             const href = el.getAttribute('href') || '';
             return href.startsWith('http') ? href : `https://www.shixiseng.com${href}`;
+          }).catch(async () => {
+            const internId = await element.getAttribute('data-intern-id');
+            return internId ? `https://www.shixiseng.com/intern/${internId}` : '';
           }) as string;
-          const tags: string[] = await element.$$eval('.intern-tag, [class*="tag"], [class*="label"]', (els: any[]) => els.map((el: any) => el.textContent?.trim() || ''));
-          return { title, salary, company, address, jobDetail, tags };
+          const tags: string[] = await element.$$eval('.intern-label, .company-label', (els: any[]) => els.map((el: any) => el.textContent?.trim() || ''));
+          return { title, salary, company, address: city, industry, jobDetail, tags };
         }
       }
     },
     waitForSelector: '.intern-item',
     maxRequestsPerCrawl: 1,
     maxConcurrency: 1,
-    timeout: 30000
+    timeout: 60000
   },
   // 应届生求职网 — ❌ 滑块验证码（q.yingjiesheng.com，51job 系）
   //   实际搜索页: https://q.yingjiesheng.com/jobs/search/?jobarea=010000&keyword=

@@ -150,10 +150,16 @@ export class WebCrawler {
         }
       } else {
         // 正常模式
-        await page.goto(url, { 
-          waitUntil: 'domcontentloaded',
-          timeout: timeout
-        });
+        try {
+          await page.goto(url, { 
+            waitUntil: 'domcontentloaded',
+            timeout: timeout
+          });
+        } catch (err: any) {
+          // Some sites (e.g., shixiseng) may timeout even with domcontentloaded
+          // due to heavy scripts. Proceed anyway if the page has rendered.
+          this.log(`goto timed out (continuing): ${err.message?.substring(0, 60)}`);
+        }
         
         await page.waitForTimeout(2000);
         
