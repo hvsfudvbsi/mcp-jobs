@@ -6,8 +6,8 @@
 // - 猎聘（liepin.com）：❌ IP 级封禁
 // - 拉勾（lagou.com）：❌ 阿里云 WAF 拦截
 // - 牛客网（nowcoder.com）：❌ 阿里云 WAF 拦截（API square-search 返回验证码）
+// - 应届生求职网（yingjiesheng.com）：❌ 滑块验证码拦截（51job 系，q.yingjiesheng.com 统一滑动验证）
 // - 脉脉（maimai.cn）：❌ 需登录 + 强反爬
-// - 应届生求职网（yingjiesheng.com）：⏳ 待验证
 // - 实习僧（shixiseng.com）：⏳ 待验证
 // - 58同城（58.com）：❌ 强反爬
 // - 赶集网（ganji.com）：❌ 强反爬
@@ -33,11 +33,11 @@ export const jobSearchUrls = [
   //   url: 'https://www.shixiseng.com/interns',
   //   name: 'shixiseng',
   // },
+  // 以下站点因反爬限制暂不可用
   // {
   //   url: 'https://www.yingjiesheng.com/commence',
   //   name: 'yingjiesheng',
   // },
-  // 以下站点因反爬限制暂不可用
   // {
   //   url: 'https://www.nowcoder.com/job/center',
   //   name: 'nowcoder',
