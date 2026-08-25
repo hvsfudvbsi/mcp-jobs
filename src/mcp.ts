@@ -21,6 +21,92 @@ import { searchJobList, crawlJobDetail, SearchParams } from './index';
 
 dotenv.config();
 
+// Web 搜索页面（内嵌单文件，无需额外静态资源）
+const WEB_UI_HTML = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>mcp-jobs 职位搜索</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f5f7fa; color: #333; padding: 24px; }
+  .container { max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: #888; font-size: 13px; margin-bottom: 20px; }
+  form { display: flex; flex-wrap: wrap; gap: 10px; background: #fff; padding: 16px; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 20px; }
+  input { padding: 9px 12px; border: 1px solid #dcdfe6; border-radius: 6px; font-size: 14px; }
+  input.kw { flex: 1 1 220px; }
+  input.sm { width: 110px; }
+  button { padding: 9px 26px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; }
+  button:disabled { background: #93b4f5; cursor: wait; }
+  .status { margin: 12px 2px; color: #666; font-size: 14px; min-height: 20px; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid #eef1f5; font-size: 14px; vertical-align: top; }
+  th { background: #f0f4f8; color: #555; font-weight: 600; white-space: nowrap; }
+  tr:hover td { background: #f8fbff; }
+  .salary { color: #e6532e; font-weight: 600; white-space: nowrap; }
+  .name a { color: #2563eb; text-decoration: none; }
+  .empty { text-align: center; color: #999; padding: 40px 0 !important; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🔍 mcp-jobs 职位搜索</h1>
+  <div class="sub">多平台招聘信息聚合 · MCP 端点：<code id="mcpUrl">/mcp</code></div>
+  <form id="f">
+    <input class="kw" name="keyword" placeholder="关键词，如：前端开发" required>
+    <input class="sm" name="city" placeholder="城市（可选）">
+    <input class="sm" name="salary" placeholder="薪资（可选）">
+    <input class="sm" name="workYear" placeholder="经验（可选）">
+    <input class="sm" name="page" type="number" value="1" min="1" style="width:70px">
+    <button id="btn" type="submit">搜 索</button>
+  </form>
+  <div class="status" id="status">提示：搜索会实时爬取多个招聘网站，可能需要 30~90 秒。</div>
+  <table id="tbl" style="display:none">
+    <thead><tr><th>职位</th><th>公司</th><th>薪资</th><th>地点</th><th>发布时间</th></tr></thead>
+    <tbody id="tbody"><tr><td colspan="5" class="empty">暂无结果</td></tr></tbody>
+  </table>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+$('#mcpUrl').textContent = location.origin + '/mcp';
+$('#f').addEventListener('submit', async e => {
+  e.preventDefault();
+  const fd = new FormData(e.target), q = new URLSearchParams();
+  for (const [k, v] of fd.entries()) if (v && !(k === 'page' && v === '1')) q.set(k, v);
+  $('#btn').disabled = true;
+  $('#status').textContent = '⏳ 正在爬取招聘网站，请耐心等待…';
+  try {
+    const r = await fetch('/api/search?' + q.toString());
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+    render(data.jobs || []);
+    $('#status').textContent = '✅ 共找到 ' + (data.total || 0) + ' 个职位';
+  } catch (err) {
+    $('#status').textContent = '❌ 搜索失败：' + err.message;
+  } finally {
+    $('#btn').disabled = false;
+  }
+});
+function esc(s) { return String(s ?? '').replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\\"':'&quot;',"'":'&#39;'}[c])); }
+function render(jobs) {
+  const tb = $('#tbody');
+  if (!jobs.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">未找到职位（部分站点可能有反爬限制）</td></tr>'; }
+  else {
+    tb.innerHTML = jobs.map(j => {
+      const link = j.jobDetail || j.link || j.url;
+      const title = link ? '<a href="' + esc(link) + '" target="_blank">' + esc(j.title) + '</a>' : esc(j.title);
+      const tags = Array.isArray(j.tags) && j.tags.length ? '<div style="color:#999;font-size:12px;margin-top:4px">' + esc(j.tags.slice(0, 6).join(' · ')) + '</div>' : '';
+      return '<tr><td class="name">' + title + tags + '</td><td>' + esc(j.company) + '</td><td class="salary">' + esc(j.salary) + '</td><td>' + esc(j.address || j.location || '') + '</td><td>' + esc(j.publishTime || j.time || '') + '</td></tr>';
+    }).join('');
+  }
+  $('#tbl').style.display = 'table';
+}
+</script>
+</body>
+</html>`;
+
 // 职位搜索工具定义
 const SEARCH_JOB_TOOL: Tool = {
   name: 'mcp_search_job',
@@ -332,8 +418,8 @@ async function runHttpServer(port: number, host: string) {
       return;
     }
 
-    // 健康检查 / 简单首页
-    if (req.url === '/' || req.url === '/health') {
+    // 健康检查（保留 JSON 输出供脚本探活）
+    if (req.url === '/health') {
       res.writeHead(200, { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({
         name: 'mcp-jobs',
@@ -342,6 +428,42 @@ async function runHttpServer(port: number, host: string) {
         mcpEndpoint: `http://${req.headers.host}/mcp`,
         tools: ['mcp_search_job', 'mcp_job_detail'],
       }, null, 2));
+      return;
+    }
+
+    // 搜索 API：/api/search?keyword=xxx&city=xxx&page=1&salary=xx&workYear=x
+    if (req.url?.startsWith('/api/search')) {
+      try {
+        const query = new URL(req.url, 'http://localhost').searchParams;
+        const keyword = (query.get('keyword') || '').trim();
+        if (!keyword) {
+          res.writeHead(400, { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: '缺少 keyword 参数' }));
+          return;
+        }
+        const params: SearchParams = {
+          keyword,
+          city: query.get('city') || undefined,
+          page: parseInt(query.get('page') || '1', 10) || 1,
+          salary: query.get('salary') || undefined,
+          workYear: query.get('workYear') || undefined,
+        };
+        console.error(`[Web] 搜索职位: ${JSON.stringify(params)}`);
+        const jobs = await searchJobList(params);
+        res.writeHead(200, { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ total: jobs.length, jobs }));
+      } catch (error) {
+        console.error('[Web] 搜索失败:', error);
+        res.writeHead(500, { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+      }
+      return;
+    }
+
+    // 首页：Web 搜索界面
+    if (req.url === '/') {
+      res.writeHead(200, { ...corsHeaders, 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(WEB_UI_HTML);
       return;
     }
 
