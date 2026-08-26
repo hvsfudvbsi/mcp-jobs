@@ -21,6 +21,9 @@ import { searchJobList, crawlJobDetail, SearchParams } from './index';
 
 dotenv.config();
 
+// 服务版本：与 package.json 保持一致，Server 信息与 /health 统一从这里取
+const VERSION = '1.4.0';
+
 // Web 搜索页面（内嵌单文件，无需额外静态资源）
 const WEB_UI_HTML = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -52,6 +55,22 @@ const WEB_UI_HTML = `<!DOCTYPE html>
   .salary { color: #e6532e; font-weight: 600; white-space: nowrap; }
   .name a { color: #2563eb; text-decoration: none; }
   .empty { text-align: center; color: #999; padding: 40px 0 !important; }
+  .progress-wrap { margin: 4px 2px 14px; }
+  .progress { height: 6px; background: #e5e9f0; border-radius: 3px; overflow: hidden; position: relative; }
+  .progress .bar { position: absolute; left: -30%; width: 30%; height: 100%; background: linear-gradient(90deg, #60a5fa, #2563eb); border-radius: 3px; animation: slide 1.2s ease-in-out infinite; }
+  @keyframes slide { 0% { left: -30%; } 100% { left: 100%; } }
+  .elapsed { color: #2563eb; font-weight: 600; }
+  .filter-bar { display: none; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 2px 12px; }
+  .flabel { color: #999; font-size: 13px; }
+  .chip { background: #fff; color: #555; border: 1px solid #dcdfe6; border-radius: 999px; padding: 5px 14px; font-size: 13px; cursor: pointer; }
+  .chip:hover { border-color: #2563eb; color: #2563eb; }
+  .chip.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+  .src { color: #888; font-size: 12px; white-space: nowrap; }
+  .pager { display: none; gap: 12px; align-items: center; justify-content: center; margin: 16px 0; }
+  .pager button { background: #fff; color: #2563eb; border: 1px solid #dcdfe6; padding: 7px 18px; font-size: 13px; }
+  .pager button:hover:not(:disabled) { border-color: #2563eb; }
+  .pager button:disabled { color: #bbb; cursor: not-allowed; }
+  #pageInfo { color: #666; font-size: 13px; }
 </style>
 </head>
 <body>
@@ -66,56 +85,113 @@ const WEB_UI_HTML = `<!DOCTYPE html>
     <input class="sm" name="page" type="number" value="1" min="1" style="width:70px">
     <button id="btn" type="submit">搜 索</button>
   </form>
-  <div class="status" id="status">提示：搜索会实时爬取多个招聘网站，可能需要 30~90 秒。</div>
+  <div class="status" id="status">提示：搜索会实时爬取多个招聘网站，可能需要 30~90 秒。<span class="elapsed" id="elapsed"></span></div>
+  <div class="progress-wrap" id="progress" style="display:none">
+    <div class="progress"><div class="bar"></div></div>
+  </div>
   <div class="export-bar" id="exportBar">
     <span style="color:#999;font-size:13px">导出结果：</span>
     <button type="button" onclick="exportData('csv')">⬇ 导出 CSV</button>
     <button type="button" onclick="exportData('json')">⬇ 导出 JSON</button>
   </div>
+  <div class="filter-bar" id="filterBar"></div>
   <table id="tbl" style="display:none">
-    <thead><tr><th>职位</th><th>公司</th><th>薪资</th><th>地点</th><th>发布时间</th></tr></thead>
-    <tbody id="tbody"><tr><td colspan="5" class="empty">暂无结果</td></tr></tbody>
+    <thead><tr><th>职位</th><th>公司</th><th>薪资</th><th>地点</th><th>发布时间</th><th>来源</th></tr></thead>
+    <tbody id="tbody"><tr><td colspan="6" class="empty">暂无结果</td></tr></tbody>
   </table>
+  <div class="pager" id="pager">
+    <button type="button" id="prevBtn" onclick="changePage(-1)">‹ 上一页</button>
+    <span id="pageInfo"></span>
+    <button type="button" id="nextBtn" onclick="changePage(1)">下一页 ›</button>
+  </div>
 </div>
 <script>
 const $ = s => document.querySelector(s);
+let lastJobs = [], filteredJobs = [], curSource = 'all', curPage = 1;
+const PAGE_SIZE = 10;
+let timerId = null;
 $('#mcpUrl').textContent = location.origin + '/mcp';
+function startProgress() {
+  const t0 = Date.now();
+  $('#progress').style.display = 'block';
+  $('#status').firstChild.textContent = '⏳ 正在爬取招聘网站，请耐心等待…';
+  $('#elapsed').textContent = '';
+  timerId = setInterval(() => {
+    $('#elapsed').textContent = '（已用 ' + Math.round((Date.now() - t0) / 1000) + ' 秒）';
+  }, 500);
+}
+function stopProgress() {
+  if (timerId) { clearInterval(timerId); timerId = null; }
+  $('#progress').style.display = 'none';
+}
 $('#f').addEventListener('submit', async e => {
   e.preventDefault();
   const fd = new FormData(e.target), q = new URLSearchParams();
   for (const [k, v] of fd.entries()) if (v && !(k === 'page' && v === '1')) q.set(k, v);
   $('#btn').disabled = true;
-  $('#status').textContent = '⏳ 正在爬取招聘网站，请耐心等待…';
+  startProgress();
   try {
     const r = await fetch('/api/search?' + q.toString());
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+    stopProgress();
     lastJobs = data.jobs || [];
-    render(lastJobs);
+    curSource = 'all'; curPage = 1;
+    renderChips();
+    applyFilter();
     $('#exportBar').classList.toggle('show', lastJobs.length > 0);
-    $('#status').textContent = '✅ 共找到 ' + (data.total || 0) + ' 个职位';
+    $('#status').firstChild.textContent = '✅ 共找到 ' + lastJobs.length + ' 个职位';
+    $('#elapsed').textContent = '';
   } catch (err) {
-    $('#status').textContent = '❌ 搜索失败：' + err.message;
+    stopProgress();
+    $('#status').firstChild.textContent = '❌ 搜索失败：' + err.message;
+    $('#elapsed').textContent = '';
   } finally {
     $('#btn').disabled = false;
   }
 });
-let lastJobs = [];
-const EXPORT_FIELDS = ['title', 'company', 'salary', 'address', 'jobDetail', 'tags'];
-const EXPORT_HEADERS = ['职位', '公司', '薪资', '地点', '详情链接', '标签'];
+function renderChips() {
+  const counts = {};
+  lastJobs.forEach(j => { const s = j.source || '未知来源'; counts[s] = (counts[s] || 0) + 1; });
+  const bar = $('#filterBar');
+  bar.style.display = Object.keys(counts).length ? 'flex' : 'none';
+  bar.innerHTML = '<span class="flabel">来源：</span>' + ['all'].concat(Object.keys(counts)).map(s => {
+    const label = s === 'all' ? '全部 (' + lastJobs.length + ')' : s + ' (' + counts[s] + ')';
+    return '<button type="button" class="chip' + (s === curSource ? ' active' : '') + '" data-s="' + esc(s) + '" onclick="setSource(this.dataset.s)">' + esc(label) + '</button>';
+  }).join('');
+}
+function setSource(s) { curSource = s; curPage = 1; renderChips(); applyFilter(); }
+function changePage(d) {
+  const totalPages = Math.max(1, Math.ceil(filteredJobs.length / PAGE_SIZE));
+  curPage = Math.min(Math.max(curPage + d, 1), totalPages);
+  applyFilter();
+}
+function applyFilter() {
+  filteredJobs = curSource === 'all' ? lastJobs : lastJobs.filter(j => (j.source || '未知来源') === curSource);
+  const totalPages = Math.max(1, Math.ceil(filteredJobs.length / PAGE_SIZE));
+  if (curPage > totalPages) curPage = totalPages;
+  render(filteredJobs.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE));
+  const pager = $('#pager');
+  pager.style.display = filteredJobs.length ? 'flex' : 'none';
+  $('#pageInfo').textContent = '第 ' + curPage + ' / ' + totalPages + ' 页 · 共 ' + filteredJobs.length + ' 条';
+  $('#prevBtn').disabled = curPage <= 1;
+  $('#nextBtn').disabled = curPage >= totalPages;
+}
+const EXPORT_FIELDS = ['title', 'company', 'salary', 'address', 'jobDetail', 'tags', 'source'];
+const EXPORT_HEADERS = ['职位', '公司', '薪资', '地点', '详情链接', '标签', '来源'];
 function csvCell(v) {
   const s = Array.isArray(v) ? v.join(' | ') : String(v ?? '');
   return '"' + s.replace(/"/g, '""') + '"';
 }
 function exportData(fmt) {
-  if (!lastJobs.length) return;
+  if (!filteredJobs.length) return;
   let blob;
   if (fmt === 'csv') {
-    const rows = [EXPORT_HEADERS].concat(lastJobs.map(j => EXPORT_FIELDS.map(f => csvCell(j[f]))));
+    const rows = [EXPORT_HEADERS].concat(filteredJobs.map(j => EXPORT_FIELDS.map(f => csvCell(j[f]))));
     // BOM 头，保证 Excel 打开 CSV 中文不乱码
     blob = new Blob(['\\uFEFF' + rows.map(r => r.join(',')).join('\\r\\n')], { type: 'text/csv;charset=utf-8' });
   } else {
-    blob = new Blob([JSON.stringify(lastJobs, null, 2)], { type: 'application/json;charset=utf-8' });
+    blob = new Blob([JSON.stringify(filteredJobs, null, 2)], { type: 'application/json;charset=utf-8' });
   }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -125,17 +201,17 @@ function exportData(fmt) {
 }
 function esc(s) { return String(s ?? '').replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\\"':'&quot;',"'":'&#39;'}[c])); }
 function render(jobs) {
+  $('#tbl').style.display = 'table';
   const tb = $('#tbody');
-  if (!jobs.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">未找到职位（部分站点可能有反爬限制）</td></tr>'; }
+  if (!jobs.length) { tb.innerHTML = '<tr><td colspan="6" class="empty">未找到职位（部分站点可能有反爬限制）</td></tr>'; return; }
   else {
     tb.innerHTML = jobs.map(j => {
       const link = j.jobDetail || j.link || j.url;
       const title = link ? '<a href="' + esc(link) + '" target="_blank">' + esc(j.title) + '</a>' : esc(j.title);
       const tags = Array.isArray(j.tags) && j.tags.length ? '<div style="color:#999;font-size:12px;margin-top:4px">' + esc(j.tags.slice(0, 6).join(' · ')) + '</div>' : '';
-      return '<tr><td class="name">' + title + tags + '</td><td>' + esc(j.company) + '</td><td class="salary">' + esc(j.salary) + '</td><td>' + esc(j.address || j.location || '') + '</td><td>' + esc(j.publishTime || j.time || '') + '</td></tr>';
+      return '<tr><td class="name">' + title + tags + '</td><td>' + esc(j.company) + '</td><td class="salary">' + esc(j.salary) + '</td><td>' + esc(j.address || j.location || '') + '</td><td>' + esc(j.publishTime || j.time || '') + '</td><td class="src">' + esc(j.source || '') + '</td></tr>';
     }).join('');
   }
-  $('#tbl').style.display = 'table';
 }
 </script>
 </body>
@@ -227,7 +303,7 @@ function createMcpServer(): Server {
   const server = new Server(
   {
     name: 'mcp-jobs',
-    version: '1.0.0',
+    version: VERSION,
   },
   {
     capabilities: {
@@ -457,7 +533,7 @@ async function runHttpServer(port: number, host: string) {
       res.writeHead(200, { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({
         name: 'mcp-jobs',
-        version: '1.0.0',
+        version: VERSION,
         status: 'running',
         mcpEndpoint: `http://${req.headers.host}/mcp`,
         tools: ['mcp_search_job', 'mcp_job_detail'],

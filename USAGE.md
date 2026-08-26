@@ -9,11 +9,14 @@
 |------|------|------|
 | **51job（前程无忧）** | ✅ 可用 | we.51job.com/pc/search，异步渲染 |
 | **智联招聘** | ✅ 可用 | www.zhaopin.com/jobs，SSR 渲染（薪资需登录才显示具体数字） |
-| BOSS直聘 | ❌ 反爬 | 跳转登录/安全验证页 + API 需 __zp_stoken__ 签名 |
+| BOSS直聘 | ⚠️ 实验性 | m.zhipin.com 移动端 + stealth，受 IP 限速影响不稳定 |
+| **实习僧** | ⚠️ 部分可用 | shixiseng.com 可抓公司/城市/标签，但标题与薪资字体混淆（Nuxt SSR） |
 | 猎聘 | ❌ 反爬 | 被反爬清空页面 + API 返回 400 |
 | 拉勾 | ❌ 反爬 | 阿里云 WAF 拦截 |
+| 牛客网 | ❌ 反爬 | 阿里云 WAF 拦截（square-search API 返回验证码） |
+| 应届生求职网 | ❌ 反爬 | 滑块验证码拦截（51job 系） |
 
-> 后三者需提供登录态 Cookie 或 stealtH浏览器指纹后可尝试启用，
+> 无法直连的站点需提供登录态 Cookie 或真实浏览器指纹后可尝试启用，
 > 在 `src/config/urlConfig.ts` 中取消对应注释。
 
 ## 环境要求
@@ -36,7 +39,34 @@ node dist/index.js
 
 # 4. 以 MCP 服务方式启动（供 Cursor / Claude Desktop / Windsurf 等接入）
 node dist/mcp.js     # 或：npx -y mcp-jobs
+
+# 5.（可选）以 HTTP 模式启动，内置 Web 搜索界面
+node dist/mcp.js --http   # 然后访问 http://localhost:3000/
 ```
+
+## Web 搜索界面（HTTP 模式）
+
+```bash
+node dist/mcp.js --http
+# 或
+npx -y mcp-jobs --http
+```
+
+访问 http://localhost:3000/ 可获得开箱即用的搜索页面：
+
+- 职位搜索表单（关键词/城市/薪资/经验/页码），实时爬取多个招聘网站
+- 结果表格支持**按来源站点筛选**、分页浏览
+- **导出 CSV / JSON**（CSV 带 BOM 头，Excel 打开中文不乱码）
+- 搜索期间显示进度条与已用时间
+
+内置接口：
+
+| 路径 | 说明 |
+|------|------|
+| `/` | Web 搜索界面 |
+| `/api/search?keyword=前端&city=北京&page=1` | 搜索 API |
+| `/mcp` | MCP 端点（StreamableHTTP） |
+| `/health` | 健康检查 |
 
 ## 以 MCP 服务接入 AI 客户端
 

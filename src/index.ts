@@ -76,10 +76,12 @@ export async function searchJobList(params: SearchParams = {}) {
       });
       if (dataset) {
         const jobItems = dataset.filter(item => item.data?.jobInfo);
+        const before = result.length;
         jobItems.forEach(item => {
-          result.push(...item.data.jobInfo)
+          // 打上来源站点标记，便于前端筛选与展示
+          result.push(...item.data.jobInfo.map((job: any) => ({ ...job, source: config.name })))
         });
-        console.log(`从 ${config.name} 获取到 ${result.length} 个职位`);
+        console.log(`从 ${config.name} 获取到 ${result.length - before} 个职位`);
       }
     } catch (error) {
       console.warn(`从 ${config.name} 获取职位失败:`, error instanceof Error ? error.message : String(error));
