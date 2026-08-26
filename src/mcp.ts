@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import http from 'http';
+import os from 'os';
 import { webcrypto } from 'crypto';
 
 // Node 18 下全局 crypto 未默认启用，SDK 依赖它，这里做兼容 polyfill
@@ -725,12 +726,33 @@ export async function runHttpServer(port: number, host: string): Promise<http.Se
     res.end(JSON.stringify({ error: 'Not Found', hint: '请访问 / 查看服务信息，或连接 /mcp 端点' }, null, 2));
   });
 
+  // 收集本机非内部 IPv4 地址（局域网/公网网卡），便于远程访问时找到正确地址
+  const lanAddresses = Object.values(os.networkInterfaces())
+    .flat()
+    .filter((info): info is os.NetworkInterfaceInfo => !!info && info.family === 'IPv4' && !info.internal)
+    .map((info) => info.address);
+
+  const displayHost = (h: string) => (h.includes(':') ? `[${h}]` : h); // IPv6 需加方括号
+  const urlFor = (h: string, path: string) => `http://${displayHost(h)}:${port}${path}`;
+
   await new Promise<void>((resolve, reject) => {
     httpServer.on('error', reject);
     httpServer.listen(port, host, () => {
-      console.error(`职位搜索服务已启动（HTTP 模式）`);
-      console.error(`  服务信息页面: http://${host === '0.0.0.0' ? 'localhost' : host}:${port}/`);
-      console.error(`  MCP 端点:     http://${host === '0.0.0.0' ? 'localhost' : host}:${port}/mcp`);
+      console.error(`职位搜索服务已启动（HTTP 模式，监听 ${host}:${port}）`);
+      if (host === '0.0.0.0' || host === '::') {
+        console.error(`  本机访问:     ${urlFor('localhost', '/')}（MCP 端点: ${urlFor('localhost', '/mcp')}）`);
+        for (const ip of lanAddresses) {
+          console.error(`  局域网访问:   ${urlFor(ip, '/')}（MCP 端点: ${urlFor(ip, '/mcp')}）`);
+        }
+        if (lanAddresses.length === 0) {
+          console.error(`  （未检测到外部网卡，仅本机可访问）`);
+        }
+        console.error(`  提示: 若需从其他设备通过公网 IP 访问，请确认云服务器安全组/防火墙已放行端口 ${port}；
+        或在本地机器用 SSH 隧道转发：ssh -L ${port}:localhost:${port} <用户>@<服务器地址>`);
+      } else {
+        console.error(`  服务信息页面: ${urlFor(host, '/')}`);
+        console.error(`  MCP 端点:     ${urlFor(host, '/mcp')}`);
+      }
       resolve();
     });
   });

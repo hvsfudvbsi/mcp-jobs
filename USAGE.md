@@ -42,8 +42,15 @@ node dist/index.js
 node dist/mcp.js     # 或：npx -y mcp-jobs
 
 # 5.（可选）以 HTTP 模式启动，内置 Web 搜索界面
-node dist/mcp.js --http   # 然后访问 http://localhost:3000/
+node dist/mcp.js --http
 ```
+
+启动后会打印所有可访问地址：本机用 `http://localhost:3000/`；
+从其他设备访问请用打印出的**局域网地址**（如 `http://192.168.x.x:3000/`）。
+
+> 服务默认监听 `0.0.0.0`，可用环境变量调整：`MCP_HOST` / `MCP_PORT`。
+> 若部署在云服务器上需要公网 IP 访问，需在安全组/防火墙放行对应端口；
+> 或在本地机器建 SSH 隧道：`ssh -L 3000:localhost:3000 <用户>@<服务器地址>`。
 
 ## Web 搜索界面（HTTP 模式）
 
