@@ -17,12 +17,13 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import dotenv from 'dotenv';
 import { searchJobList, crawlJobDetail, SearchParams } from './index';
+import { buildSummary } from './services/summaryService';
 
 
 dotenv.config();
 
 // 服务版本：与 package.json 保持一致，Server 信息与 /health 统一从这里取
-const VERSION = '1.4.0';
+const VERSION = '1.5.0';
 
 // Web 搜索页面（内嵌单文件，无需额外静态资源）
 const WEB_UI_HTML = `<!DOCTYPE html>
@@ -409,7 +410,7 @@ function buildMarkdown(sum, jobs) {
 // 职位搜索工具定义
 const SEARCH_JOB_TOOL: Tool = {
   name: 'mcp_search_job',
-  description: '搜索职位信息，包括职位名称、公司名称、薪资范围、工作地点、发布时间等。',
+  description: '搜索职位信息，返回职位列表与岗位要求总结（技能 Top、薪资分布/区间/中位数、不同岗位的要求/技能/薪资分组、热门公司）。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -545,9 +546,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             data: `搜索完成，找到 ${results.length} 个职位`,
           });
 
-          // Add metadata about authentication status
+          // 附带岗位要求总结（与 Web 页面同一套逻辑）：技能 Top / 薪资分布 / 不同岗位分组薪资 / 热门公司
+          const summary = buildSummary(results);
+
           const responseData = {
             jobs: results,
+            summary,
             metadata: {
               totalResults: results.length,
               searchParams: { keyword, city, page, salary, workYear },
@@ -570,6 +574,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               type: 'text',
               text: JSON.stringify({
                 jobs: [],
+                summary: buildSummary([]),
                 metadata: {
                   totalResults: 0,
                   searchParams: { keyword, city, page, salary, workYear },

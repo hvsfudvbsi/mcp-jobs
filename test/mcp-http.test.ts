@@ -12,6 +12,7 @@ vi.mock('../src/index', () => ({
 
 import { searchJobList } from '../src/index';
 import { runHttpServer } from '../src/mcp';
+import { buildSummary } from '../src/services/summaryService';
 
 let server: Server;
 let base: string;
@@ -150,6 +151,33 @@ describe('/mcp 端点', () => {
     const names = payload.result.tools.map((t: { name: string }) => t.name);
     expect(names).toEqual(expect.arrayContaining(['mcp_search_job', 'mcp_job_detail']));
   });
+
+  it('tools/call mcp_search_job 返回职位列表并附带岗位要求总结', async () => {
+    vi.mocked(searchJobList).mockResolvedValue([
+      { title: '前端开发', salary: '20-30万', company: 'A公司', address: '北京', source: '51job', tags: ['Vue', 'TypeScript'] },
+      { title: 'Web前端工程师', salary: '25-35万·13薪', company: 'B公司', address: '深圳', source: 'zhaopin-jobs', tags: ['React'] },
+      { title: 'Java开发', salary: '30-40万', company: 'C公司', address: '上海', source: '51job', tags: ['Java', 'Spring'] },
+    ]);
+    const payload = await mcpRequest('tools/call', {
+      name: 'mcp_search_job',
+      arguments: { keyword: '前端' },
+    });
+    expect(payload.result.isError).toBe(false);
+    const data = JSON.parse(payload.result.content[0].text);
+    expect(data.jobs).toHaveLength(3);
+    expect(data.metadata.totalResults).toBe(3);
+    // 总结数据：总数/来源/技能/薪资/分组
+    expect(data.summary.total).toBe(3);
+    expect(Object.keys(data.summary.sources)).toContain('51job');
+    expect(data.summary.topSkills.length).toBeGreaterThan(0);
+    // 前端开发 / Web前端工程师 归一为同一组
+    const front = data.summary.groupList.find((g: { title: string }) => g.title === '前端');
+    expect(front).toBeTruthy();
+    expect(front.count).toBe(2);
+    expect(front.salary).not.toBe('—');
+    expect(front.salaryMedian).not.toBe('—');
+    expect(data.summary.salaryMin).toBeGreaterThan(0);
+  });
 });
 
 // 在 Node vm 沙箱中执行首页内嵌脚本并暴露纯函数（同时校验脚本可被浏览器解析）
@@ -180,6 +208,22 @@ function evalPageFns(html: string) {
     };
   };
 }
+
+describe('前后端总结逻辑一致性', () => {
+  it('后端 buildSummary 与页面内嵌前端逻辑输出一致（防止分叉）', async () => {
+    const res = await fetch(`${base}/`);
+    const html = await res.text();
+    const { buildSummary: frontBuildSummary } = evalPageFns(html);
+    const jobs = [
+      { title: '前端开发', salary: '20-30万', company: 'A公司', address: '北京', source: '51job', tags: ['Vue', 'TypeScript'] },
+      { title: 'Web前端开发工程师', salary: '25-35万·13薪', company: 'B公司', address: '深圳', source: 'zhaopin-jobs', tags: ['React', 'Node.js'] },
+      { title: '中级web前端开发工程师', salary: '2-3万', company: 'C公司', address: '杭州', source: 'shixiseng', tags: ['Vue', 'CSS'] },
+      { title: 'Java后端开发工程师', salary: '35-50万/年', company: 'D公司', address: '上海', source: '51job', tags: ['Java', 'Spring'] },
+      { title: '前端', salary: '30-40K·14薪', company: 'E公司', address: '广州', source: 'zhaopin-jobs', tags: [] },
+    ];
+    expect(buildSummary(jobs)).toEqual(frontBuildSummary(jobs));
+  });
+});
 
 describe('岗位标题归一化与分组薪资', () => {
   it('前端/前端开发/Web前端/web前端 合并为一组，且薪资按组统计', async () => {

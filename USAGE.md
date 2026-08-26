@@ -57,7 +57,8 @@ npx -y mcp-jobs --http
 
 - 职位搜索表单（关键词/城市/薪资/经验/页码），实时爬取多个招聘网站
 - 结果表格支持**按来源站点筛选**、分页浏览
-- **导出 CSV / JSON**（CSV 带 BOM 头，Excel 打开中文不乱码）
+- 搜索完成后展示**岗位要求总结**：技能要求 Top、薪资分布/区间/中位数、不同岗位（要求/技能/薪资）分组、热门公司
+- **导出 CSV / JSON / MD**（CSV 带 BOM 头，Excel 打开中文不乱码；MD 含完整总结文档与职位明细）
 - 搜索期间显示进度条与已用时间
 
 内置接口：
@@ -80,6 +81,26 @@ npx -y mcp-jobs --http
 接入后可直接用自然语言搜索职位：
 - "搜索北京的前端开发职位"
 - "查找上海的数据分析师岗位"
+
+`mcp_search_job` 返回结构：
+
+```jsonc
+{
+  "jobs": [ /* 职位列表：title/salary/company/address/tags/jobDetail/source */ ],
+  "summary": {
+    "total": 40,
+    "sources": { "51job": 25, "zhaopin-jobs": 15 },
+    "topSkills": [["Vue", 18], ["本科", 12]],
+    "salaryMin": 1.9, "salaryMax": 34, "salaryMedian": 21,   // 万/年
+    "bands": { "<10万": 2, "10-20万": 8, "20-30万": 20, "30-50万": 10, "50万+": 0 },
+    "groupList": [  // 不同岗位（要求/技能/薪资），按归一化后的岗位方向聚合
+      { "title": "前端", "count": 35, "salary": "1.9万 ~ 34万", "salaryMedian": "21万", "skills": "Vue、javascript、css" }
+    ],
+    "topCompanies": [["某公司", 5]]
+  },
+  "metadata": { "totalResults": 40, "searchParams": { "keyword": "前端开发" } }
+}
+```
 
 ## 作为代码库使用
 
