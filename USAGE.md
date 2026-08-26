@@ -111,6 +111,17 @@ const detail = await crawlJobDetail('https://jobs.51job.com/all/xxx.html');
 - 职位字段：`title`（职位名）、`salary`（薪资）、`company`（公司）、
   `address`（地区）、`tags`（标签）、`jobDetail`（详情页链接）
 
+## 测试
+
+```bash
+npm test          # 单元/集成测试（vitest）：/health、Web 界面 HTML、/mcp tools/list、
+                  # /api/search 链路（爬虫边界为桩实现，秒级完成，不访问真实站点）
+npm run test:live # 真实链路冒烟：启动 HTTP 服务并真实爬取招聘网站调用 /api/search
+                  # （约 1~3 分钟，需先 npm run build；站点反爬可能导致 0 职位，链路正常即通过）
+```
+
+测试文件位于 `test/`，不参与 `npm run build` 产物。
+
 ## 故障排查
 
 | 现象 | 处理 |

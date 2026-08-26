@@ -10,7 +10,9 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "start:http": "node dist/mcp.js --http",
-    "dev": "ts-node src/index.ts"
+    "dev": "ts-node src/index.ts",
+    "test": "vitest run",
+    "test:live": "node scripts/live-search.js"
   },
   "keywords": [
     "jobs",
@@ -37,5 +39,8 @@
   ],
   "engines": {
     "node": ">=16.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.9"
   }
 }

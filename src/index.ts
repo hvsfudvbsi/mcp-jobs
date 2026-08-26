@@ -13,6 +13,9 @@ export interface SearchParams {
   workYear?: string;
 }
 
+// 单站点爬取函数签名（searchJobList 的注入点，便于测试替换为桩实现）
+export type CrawlFn = (url: string, params: SearchParams) => Promise<CrawlerData[] | null>;
+
 async function crawlByUrl(url: string, params: SearchParams): Promise<CrawlerData[] | null> {
   const crawlerService = new CrawlerService();
   const storageService = new StorageService();
@@ -59,7 +62,7 @@ async function crawlByUrl(url: string, params: SearchParams): Promise<CrawlerDat
   }
 }
 
-export async function searchJobList(params: SearchParams = {}) {
+export async function searchJobList(params: SearchParams = {}, crawlFn: CrawlFn = crawlByUrl) {
   const { keyword, city, page = 1, salary, workYear } = params;
   const result : any[] = [];
 
@@ -67,7 +70,7 @@ export async function searchJobList(params: SearchParams = {}) {
 
   for (const config of jobSearchUrls) {
     try {
-      const dataset = await crawlByUrl(config.url, {
+      const dataset = await crawlFn(config.url, {
         keyword: keyword + ' ' + city,
         city,
         page,

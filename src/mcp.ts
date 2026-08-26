@@ -299,7 +299,7 @@ function isValidJobDetailParams(args: unknown): args is JobDetailParams {
 
 
 // 创建 MCP 服务器实例的工厂函数（HTTP 无状态模式下每个请求创建独立实例）
-function createMcpServer(): Server {
+export function createMcpServer(): Server {
   const server = new Server(
   {
     name: 'mcp-jobs',
@@ -513,7 +513,8 @@ async function runStdioServer() {
 }
 
 // 启动 HTTP 模式服务器（通过 --http 参数或 MCP_HTTP=1 环境变量开启）
-async function runHttpServer(port: number, host: string) {
+// 返回 http.Server 实例，便于测试中监听随机端口与关闭
+export async function runHttpServer(port: number, host: string): Promise<http.Server> {
   const httpServer = http.createServer(async (req, res) => {
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
@@ -610,7 +611,7 @@ async function runHttpServer(port: number, host: string) {
     res.end(JSON.stringify({ error: 'Not Found', hint: '请访问 / 查看服务信息，或连接 /mcp 端点' }, null, 2));
   });
 
-  return new Promise<void>((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     httpServer.on('error', reject);
     httpServer.listen(port, host, () => {
       console.error(`职位搜索服务已启动（HTTP 模式）`);
@@ -619,6 +620,7 @@ async function runHttpServer(port: number, host: string) {
       resolve();
     });
   });
+  return httpServer;
 }
 
 async function main() {
@@ -640,7 +642,10 @@ async function main() {
   }
 }
 
-main().catch((error: any) => {
-  console.error('服务器运行出错:', error);
-  process.exit(1);
-});
+// 直接运行时才启动服务；被测试/其他模块 import 时不启动（避免副作用）
+if (require.main === module) {
+  main().catch((error: any) => {
+    console.error('服务器运行出错:', error);
+    process.exit(1);
+  });
+}
