@@ -136,7 +136,8 @@ export function buildSummary(jobs: JobItem[]): Summary {
       const mi = Math.floor(mids.length / 2);
       med = fmtWan(mids.length % 2 ? mids[mi] : (mids[mi - 1] + mids[mi]) / 2);
     }
-    const skills = Object.entries(g.skills).sort((a, b) => b[1] - a[1]).slice(0, 5).map((x) => x[0]).join('、') || '—';
+    // 列出该岗位的全部技能（按出现次数降序），不截断 Top5，满足「不同岗位的要求技能都保存下来」
+    const skills = Object.entries(g.skills).sort((a, b) => b[1] - a[1]).map((x) => x[0]).join('、') || '—';
     return { title: g.title, count: g.count, salary: mids.length ? lo + ' ~ ' + hi : '—', salaryMedian: med, skills };
   }).sort((a, b) => b.count - a.count);
 

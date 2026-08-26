@@ -85,6 +85,17 @@ describe('前端 buildSummary', () => {
     expect(sum.groupList[0].title).toBe('前端');
   });
 
+  it('岗位分组的 skills 列出全部技能（不截断 Top 5）', () => {
+    const many = [
+      { title: '前端开发', salary: '20-30万', source: '51job', tags: ['Vue', 'React', 'TS', 'CSS', 'HTML', 'Node', 'Webpack'] },
+    ];
+    const s = page.buildSummary(many);
+    const front = s.groupList.find((g) => g.title === '前端');
+    expect(front).toBeTruthy();
+    expect(front!.skills.split('、')).toHaveLength(7);
+    expect(front!.skills).toBe('Vue、React、TS、CSS、HTML、Node、Webpack');
+  });
+
   it('空职位列表返回空结构（无 NaN）', () => {
     const empty = page.buildSummary([]);
     expect(empty.total).toBe(0);

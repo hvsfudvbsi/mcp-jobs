@@ -129,7 +129,7 @@ export const WEB_UI_HTML = `<!DOCTYPE html>
     <div class="sum-sec"><span class="sum-sec-title">🛠 技能要求 Top</span><div id="sumSkillChips" class="sum-chips"></div></div>
     <div class="sum-sec"><span class="sum-sec-title">💰 薪资分布（万/年，月薪按 ×12 折算）</span><div id="sumBands" class="sum-chips"></div></div>
     <div class="sum-sec"><span class="sum-sec-title">🧭 不同岗位：要求/技能/薪资</span>
-      <table class="sum-table"><thead><tr><th>岗位方向</th><th>职位数</th><th>薪资区间</th><th>薪资中位数</th><th>主要技能</th></tr></thead><tbody id="sumGroups"></tbody></table>
+      <table class="sum-table"><thead><tr><th>岗位方向</th><th>职位数</th><th>薪资区间</th><th>薪资中位数</th><th>技能要求</th></tr></thead><tbody id="sumGroups"></tbody></table>
     </div>
     <div class="sum-sec"><span class="sum-sec-title">🏢 热门公司</span><div id="sumCompanies" class="sum-cos"></div></div>
   </div>
@@ -310,7 +310,7 @@ function buildMarkdown(sum, jobs) {
   L.push(mdTable(['技能', '出现次数'], sum.topSkills.length ? sum.topSkills : [['—', 0]]));
   L.push('');
   L.push('### 🧭 不同岗位（要求/技能/薪资）');
-  L.push(mdTable(['岗位方向', '职位数', '薪资区间', '薪资中位数', '主要技能'],
+  L.push(mdTable(['岗位方向', '职位数', '薪资区间', '薪资中位数', '技能要求'],
     sum.groupList.length ? sum.groupList.map(g => [g.title, String(g.count), g.salary, g.salaryMedian, g.skills]) : [['—', 0, '—', '—', '—']]));
   L.push('');
   L.push('### 🏢 热门公司');
