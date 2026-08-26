@@ -14,7 +14,8 @@
 // - LinkedIn（linkedin.com）：❌ 需登录 + 强反爬
 // - Indeed（indeed.com）：❌ 强反爬
 // - Glassdoor（glassdoor.com）：❌ 需登录
-// - Levels.fyi（levels.fyi）：⏳ 待验证（技术薪资数据）
+// - Levels.fyi（levels.fyi）：✅ 可抓取（2026-08 实测：SSR 渲染无验证墙，公司薪资表可按级别提取；
+//   属技术薪资数据站而非职位列表站，暂不纳入关键词搜索聚合，需要时可单独接入参考查询）
 export const jobSearchUrls = [
   {
     url: 'https://we.51job.com/pc/search',
@@ -73,8 +74,9 @@ export const jobSearchUrls = [
   //   url: 'https://www.glassdoor.com/Job/',
   //   name: 'glassdoor',
   // },
+  // Levels.fyi — ✅ 可抓取（薪资数据站，非职位列表源，暂不启用）
   // {
-  //   url: 'https://www.levels.fyi/',
+  //   url: 'https://www.levels.fyi/companies/google/salaries/software-engineer',
   //   name: 'levels-fyi',
   // },
 ];
