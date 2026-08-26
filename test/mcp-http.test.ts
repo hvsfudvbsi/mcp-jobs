@@ -78,9 +78,17 @@ describe('HTTP 服务', () => {
     expect(html).toContain('id="progress"');
     expect(html).toContain("exportData('csv')");
     expect(html).toContain("exportData('json')");
+    expect(html).toContain("exportData('md')");
     // 调用 /api/search 并展示来源列
     expect(html).toContain("fetch('/api/search?'");
     expect(html).toContain('来源');
+    // 岗位要求总结面板 + 汇总/导出逻辑
+    expect(html).toContain('id="summaryPanel"');
+    expect(html).toContain('岗位要求总结');
+    expect(html).toContain('function buildSummary');
+    expect(html).toContain('function buildMarkdown');
+    expect(html).toContain('function parseSalary');
+    expect(html).toContain('id="sumGroups"');
   });
 
   it('OPTIONS 预检返回 204 与 CORS 头', async () => {

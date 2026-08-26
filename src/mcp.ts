@@ -71,6 +71,25 @@ const WEB_UI_HTML = `<!DOCTYPE html>
   .pager button:hover:not(:disabled) { border-color: #2563eb; }
   .pager button:disabled { color: #bbb; cursor: not-allowed; }
   #pageInfo { color: #666; font-size: 13px; }
+  /* 搜索总结面板 */
+  .summary { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08); padding: 16px; margin-bottom: 20px; }
+  .sum-head { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
+  .sum-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .sum-card { background: #f8fafc; border: 1px solid #eef1f5; border-radius: 8px; padding: 10px 12px; }
+  .sum-card .num { font-size: 18px; font-weight: 700; color: #2563eb; }
+  .sum-card .lbl { font-size: 12px; color: #888; margin-top: 2px; }
+  .sum-sec { margin-top: 14px; }
+  .sum-sec-title { display: block; font-size: 13px; font-weight: 600; color: #555; margin-bottom: 8px; }
+  .sum-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .sum-chip { background: #eff6ff; color: #2563eb; border-radius: 999px; padding: 4px 10px; font-size: 12px; }
+  .sum-chip b { margin-left: 2px; }
+  .sum-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .sum-table th, .sum-table td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #eef1f5; }
+  .sum-table th { background: #f0f4f8; color: #555; white-space: nowrap; }
+  .sum-table .g-title { font-weight: 600; }
+  .sum-cos { display: flex; flex-wrap: wrap; gap: 8px; }
+  .sum-cos .co { background: #f8fafc; border: 1px solid #eef1f5; border-radius: 6px; padding: 4px 10px; font-size: 12px; color: #555; }
+  .sum-cos .co span { color: #2563eb; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -93,6 +112,22 @@ const WEB_UI_HTML = `<!DOCTYPE html>
     <span style="color:#999;font-size:13px">导出结果：</span>
     <button type="button" onclick="exportData('csv')">⬇ 导出 CSV</button>
     <button type="button" onclick="exportData('json')">⬇ 导出 JSON</button>
+    <button type="button" onclick="exportData('md')">⬇ 导出 MD</button>
+  </div>
+  <div class="summary" id="summaryPanel" style="display:none">
+    <div class="sum-head">📊 岗位要求总结</div>
+    <div class="sum-cards">
+      <div class="sum-card"><div class="num" id="sumTotal">0</div><div class="lbl">职位总数</div></div>
+      <div class="sum-card"><div class="num" id="sumSources">0</div><div class="lbl">来源站点</div></div>
+      <div class="sum-card"><div class="num" id="sumSalary">—</div><div class="lbl">薪资区间（万/年）</div></div>
+      <div class="sum-card"><div class="num" id="sumMedian">—</div><div class="lbl">薪资中位数</div></div>
+    </div>
+    <div class="sum-sec"><span class="sum-sec-title">🛠 技能要求 Top</span><div id="sumSkillChips" class="sum-chips"></div></div>
+    <div class="sum-sec"><span class="sum-sec-title">💰 薪资分布（万/年，月薪按 ×12 折算）</span><div id="sumBands" class="sum-chips"></div></div>
+    <div class="sum-sec"><span class="sum-sec-title">🧭 不同岗位：要求/技能/薪资</span>
+      <table class="sum-table"><thead><tr><th>岗位方向</th><th>职位数</th><th>薪资区间</th><th>主要技能</th></tr></thead><tbody id="sumGroups"></tbody></table>
+    </div>
+    <div class="sum-sec"><span class="sum-sec-title">🏢 热门公司</span><div id="sumCompanies" class="sum-cos"></div></div>
   </div>
   <div class="filter-bar" id="filterBar"></div>
   <table id="tbl" style="display:none">
@@ -176,6 +211,7 @@ function applyFilter() {
   $('#pageInfo').textContent = '第 ' + curPage + ' / ' + totalPages + ' 页 · 共 ' + filteredJobs.length + ' 条';
   $('#prevBtn').disabled = curPage <= 1;
   $('#nextBtn').disabled = curPage >= totalPages;
+  renderSummary(buildSummary(filteredJobs));
 }
 const EXPORT_FIELDS = ['title', 'company', 'salary', 'address', 'jobDetail', 'tags', 'source'];
 const EXPORT_HEADERS = ['职位', '公司', '薪资', '地点', '详情链接', '标签', '来源'];
@@ -190,12 +226,15 @@ function exportData(fmt) {
     const rows = [EXPORT_HEADERS].concat(filteredJobs.map(j => EXPORT_FIELDS.map(f => csvCell(j[f]))));
     // BOM 头，保证 Excel 打开 CSV 中文不乱码
     blob = new Blob(['\\uFEFF' + rows.map(r => r.join(',')).join('\\r\\n')], { type: 'text/csv;charset=utf-8' });
+  } else if (fmt === 'md') {
+    blob = new Blob([buildMarkdown(buildSummary(filteredJobs), filteredJobs)], { type: 'text/markdown;charset=utf-8' });
   } else {
-    blob = new Blob([JSON.stringify(filteredJobs, null, 2)], { type: 'application/json;charset=utf-8' });
+    // JSON 导出同时包含总结与职位列表
+    blob = new Blob([JSON.stringify({ summary: buildSummary(filteredJobs), jobs: filteredJobs }, null, 2)], { type: 'application/json;charset=utf-8' });
   }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'mcp-jobs-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.' + fmt;
+  a.download = (fmt === 'md' ? 'mcp-jobs-summary-' : 'mcp-jobs-') + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.' + fmt;
   a.click();
   URL.revokeObjectURL(a.href);
 }
@@ -212,6 +251,137 @@ function render(jobs) {
       return '<tr><td class="name">' + title + tags + '</td><td>' + esc(j.company) + '</td><td class="salary">' + esc(j.salary) + '</td><td>' + esc(j.address || j.location || '') + '</td><td>' + esc(j.publishTime || j.time || '') + '</td><td class="src">' + esc(j.source || '') + '</td></tr>';
     }).join('');
   }
+}
+
+// ===== 岗位要求总结 + MD 导出 =====
+// 解析薪资文本为年薪区间（万/年）："2-4万·14薪"/"25-38万/年" → 年薪；"2-4万"/"15-25K" 视为月薪 ×12 折算
+function parseSalary(s) {
+  if (!s) return null;
+  const str = String(s);
+  const m = str.match(/(\\d+(?:\\.\\d+)?)\\s*[-~至]\\s*(\\d+(?:\\.\\d+)?)\\s*(万|k|K)/);
+  if (!m) return null;
+  let lo = parseFloat(m[1]), hi = parseFloat(m[2]);
+  const annual = /年|薪/.test(str);
+  const isK = /k/i.test(m[3]);
+  if (isK) { lo = lo / 10; hi = hi / 10; }   // K → 万（月薪）
+  if (!annual) { lo *= 12; hi *= 12; }       // 默认月薪，×12 折成年薪
+  if (lo > hi) { const t = lo; lo = hi; hi = t; }
+  return { lo, hi, mid: (lo + hi) / 2, text: str };
+}
+function fmtWan(n) { return (Math.round(n * 10) / 10) + '万'; }
+// 职位标题归一化：去掉级别/后缀词，聚合同类岗位方向
+function normalizeTitle(t) {
+  let s = String(t || '').trim();
+  s = s.replace(/(高级|资深|初级|中级|主任|首席|实习|应届)/g, '');
+  s = s.replace(/(开发工程师|研发工程师|工程师|开发|专员|经理|主管|实习生)$/g, '');
+  s = s.replace(/[（(].*?[)）]/g, '').trim();
+  return s || '其他';
+}
+function buildSummary(jobs) {
+  const sum = {
+    total: jobs.length, sources: {}, skills: {}, companies: {}, groups: {},
+    salaries: [], bands: { '<10万': 0, '10-20万': 0, '20-30万': 0, '30-50万': 0, '50万+': 0 },
+  };
+  jobs.forEach(j => {
+    const src = j.source || '未知来源';
+    sum.sources[src] = (sum.sources[src] || 0) + 1;
+    const tags = Array.isArray(j.tags) ? j.tags : [];
+    tags.forEach(t => { sum.skills[t] = (sum.skills[t] || 0) + 1; });
+    const co = j.company || '未知公司';
+    sum.companies[co] = (sum.companies[co] || 0) + 1;
+    const g = normalizeTitle(j.title);
+    const grp = sum.groups[g] = sum.groups[g] || { title: g, count: 0, salaries: [], skills: {} };
+    grp.count++;
+    tags.forEach(t => { grp.skills[t] = (grp.skills[t] || 0) + 1; });
+    const p = parseSalary(j.salary);
+    if (p) {
+      sum.salaries.push(p.mid);
+      grp.salaries.push(p);
+      if (p.mid < 10) sum.bands['<10万']++;
+      else if (p.mid < 20) sum.bands['10-20万']++;
+      else if (p.mid < 30) sum.bands['20-30万']++;
+      else if (p.mid < 50) sum.bands['30-50万']++;
+      else sum.bands['50万+']++;
+    }
+  });
+  sum.topSkills = Object.entries(sum.skills).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  sum.topCompanies = Object.entries(sum.companies).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  sum.groupList = Object.values(sum.groups).map(g => {
+    const mids = g.salaries.map(x => x.mid).sort((a, b) => a - b);
+    const lo = mids.length ? fmtWan(mids[0]) : '—';
+    const hi = mids.length ? fmtWan(mids[mids.length - 1]) : '';
+    const skills = Object.entries(g.skills).sort((a, b) => b[1] - a[1]).slice(0, 5).map(x => x[0]).join('、') || '—';
+    return { title: g.title, count: g.count, salary: mids.length ? lo + ' ~ ' + hi : '—', skills };
+  }).sort((a, b) => b.count - a.count);
+  if (sum.salaries.length) {
+    sum.salaries.sort((a, b) => a - b);
+    sum.salaryMin = sum.salaries[0];
+    sum.salaryMax = sum.salaries[sum.salaries.length - 1];
+    const m = Math.floor(sum.salaries.length / 2);
+    sum.salaryMedian = sum.salaries.length % 2 ? sum.salaries[m] : (sum.salaries[m - 1] + sum.salaries[m]) / 2;
+  }
+  return sum;
+}
+function renderSummary(sum) {
+  const panel = $('#summaryPanel');
+  if (!sum.total) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  $('#sumTotal').textContent = sum.total;
+  $('#sumSources').textContent = Object.keys(sum.sources).length;
+  $('#sumSalary').textContent = sum.salaries.length ? fmtWan(sum.salaryMin) + ' ~ ' + fmtWan(sum.salaryMax) : '—';
+  $('#sumMedian').textContent = sum.salaries.length ? fmtWan(sum.salaryMedian) : '—';
+  $('#sumSkillChips').innerHTML = sum.topSkills.length
+    ? sum.topSkills.map(([t, c]) => '<span class="sum-chip">' + esc(t) + ' <b>' + c + '</b></span>').join('')
+    : '<span style="color:#999">暂无标签数据</span>';
+  $('#sumBands').innerHTML = Object.entries(sum.bands)
+    .map(([k, v]) => '<span class="sum-chip">' + k + ' <b>' + v + '</b></span>').join('');
+  const tb = $('#sumGroups');
+  tb.innerHTML = sum.groupList.length
+    ? sum.groupList.map(g => '<tr><td class="g-title">' + esc(g.title) + '</td><td>' + g.count + '</td><td>' + esc(g.salary) + '</td><td>' + esc(g.skills) + '</td></tr>').join('')
+    : '<tr><td colspan="4" class="empty">暂无数据</td></tr>';
+  $('#sumCompanies').innerHTML = sum.topCompanies.length
+    ? sum.topCompanies.map(([c, n]) => '<div class="co">' + esc(c) + ' <span>' + n + '</span></div>').join('')
+    : '<span style="color:#999">—</span>';
+}
+function mdTable(headers, rows) {
+  return '| ' + headers.join(' | ') + ' |\\n| ' + headers.map(() => '---').join(' | ') + ' |\\n' + rows.map(r => '| ' + r.join(' | ') + ' |').join('\\n');
+}
+// 生成 Markdown 总结文档（含要求/技能/薪资/不同岗位分组与职位明细）
+function buildMarkdown(sum, jobs) {
+  const L = [];
+  const fd = new FormData($('#f'));
+  L.push('# 🎯 岗位搜索结果总结');
+  L.push('');
+  L.push('**搜索时间**: ' + new Date().toLocaleString('zh-CN'));
+  L.push('**关键词**: ' + (fd.get('keyword') || '—') + (fd.get('city') ? ' · **城市**: ' + fd.get('city') : ''));
+  L.push('**职位总数**: ' + sum.total + '（' + Object.entries(sum.sources).map(([s, n]) => s + ': ' + n).join('、') + '）');
+  L.push('');
+  L.push('## 📊 总结');
+  L.push('');
+  L.push('### 💰 薪资概览（万/年，月薪按 ×12 折算）');
+  L.push(mdTable(['指标', '值'], [
+    ['可解析薪资职位', sum.salaries.length + ' / ' + sum.total],
+    ['薪资区间', sum.salaries.length ? fmtWan(sum.salaryMin) + ' ~ ' + fmtWan(sum.salaryMax) : '—'],
+    ['中位数', sum.salaries.length ? fmtWan(sum.salaryMedian) : '—'],
+    ['分布', Object.entries(sum.bands).map(([k, v]) => k + ': ' + v).join('、')],
+  ]));
+  L.push('');
+  L.push('### 🛠 技能要求 Top');
+  L.push(mdTable(['技能', '出现次数'], sum.topSkills.length ? sum.topSkills : [['—', 0]]));
+  L.push('');
+  L.push('### 🧭 不同岗位（要求/技能/薪资）');
+  L.push(mdTable(['岗位方向', '职位数', '薪资区间', '主要技能'],
+    sum.groupList.length ? sum.groupList.map(g => [g.title, String(g.count), g.salary, g.skills]) : [['—', 0, '—', '—']]));
+  L.push('');
+  L.push('### 🏢 热门公司');
+  if (sum.topCompanies.length) sum.topCompanies.forEach(([c, n], i) => L.push((i + 1) + '. ' + c + '（' + n + '）'));
+  else L.push('—');
+  L.push('');
+  L.push('## 📋 职位列表（' + jobs.length + ' 条）');
+  L.push('');
+  L.push(mdTable(['职位', '公司', '薪资', '地点', '来源', '详情'],
+    jobs.map(j => [j.title || '', j.company || '', j.salary || '', j.address || j.location || '', j.source || '', j.jobDetail ? '[' + j.jobDetail + '](' + j.jobDetail + ')' : ''])));
+  return L.join('\\n');
 }
 </script>
 </body>
