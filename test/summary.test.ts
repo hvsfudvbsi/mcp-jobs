@@ -105,6 +105,89 @@ describe('前端 buildSummary', () => {
   });
 });
 
+describe('技能要求排除福利/非技能词（五险一金、带薪年假 等不污染技能 Top）', () => {
+  const welfareJobs = [
+    { title: '前端开发', salary: '20-30万', company: 'A公司', source: '51job', tags: ['Vue', '五险一金', '带薪年假', '绩效奖金', '周末双休', '节日福利'] },
+    { title: '后端开发', salary: '30-40万', company: 'B公司', source: 'zhaopin-jobs', tags: ['Java', '定期体检', '弹性工作', '股票期权', '本科', '1-3年', '免费班车', '专业培训'] },
+    { title: '算法工程师', salary: '40-60万', company: 'C公司', source: 'liepin', tags: ['PyTorch', 'AI', '人工智能', 'DeepSpeed', '云计算'] },
+  ];
+
+  it('topSkills 只保留真正的技能，福利/补贴/经验学历词全部排除', () => {
+    const sum = page.buildSummary(welfareJobs);
+    const names = sum.topSkills.map(([t]) => t);
+    expect(names).not.toContain('五险一金');
+    expect(names).not.toContain('带薪年假');
+    expect(names).not.toContain('绩效奖金');
+    expect(names).not.toContain('定期体检');
+    expect(names).not.toContain('股票期权');
+    expect(names).not.toContain('本科');
+    expect(names).not.toContain('1-3年');
+    expect(names).not.toContain('免费班车');
+    expect(names).not.toContain('专业培训');
+    expect(names).toContain('Vue');
+    expect(names).toContain('Java');
+    expect(names).toContain('PyTorch');
+    expect(names).toContain('AI');
+    expect(names).toContain('云计算');
+  });
+
+  it('岗位分组 skills 同样排除福利词，仅保留技能', () => {
+    const sum = page.buildSummary(welfareJobs);
+    const front = sum.groupList.find((g) => g.title === '前端');
+    expect(front).toBeTruthy();
+    expect(front!.skills).toBe('Vue');
+    const algo = sum.groupList.find((g) => g.title === '算法');
+    expect(algo!.skills.split('、')).toEqual(['PyTorch', 'AI', '人工智能', 'DeepSpeed', '云计算']);
+  });
+
+  it('岗位角色后缀/空白/岗位类型/通用领域词同样不进入技能统计', () => {
+    const jobs2 = [
+      { title: '前端开发', salary: '20-30万', source: '51job', tags: ['Vue', '前端开发', '计算机', '软件', '  '] },
+      { title: '后端开发', salary: '30-40万', source: 'shixiseng', tags: ['Java', '可转正实习', '', '后端工程师', '产品经理'] },
+    ];
+    const sum = page.buildSummary(jobs2);
+    const names = sum.topSkills.map(([t]) => t);
+    expect(names).toEqual(['Vue', 'Java']);
+    const front = sum.groupList.find((g) => g.title === '前端');
+    expect(front!.skills).toBe('Vue');
+    expect(sum.skills['前端开发']).toBeUndefined();
+    expect(sum.skills['']).toBeUndefined();
+  });
+
+  it('福利词变体（模式匹配）：五险二金/做五休二/节假日福利/婚假/月度绩效奖金/带薪休假 全部排除', () => {
+    const jobs3 = [
+      { title: '前端开发', salary: '20-30万', source: '51job', tags: ['Vue', '做五休二', '节假日福利', '五险二金', '全额公积金', '季度团建'] },
+      { title: '后端开发', salary: '30-40万', source: 'zhaopin-jobs', tags: ['Java', '婚假', '月度绩效奖金', '带薪休假', '员工团建', '生育'] },
+    ];
+    const sum = page.buildSummary(jobs3);
+    const names = sum.topSkills.map(([t]) => t);
+    expect(names).toEqual(['Vue', 'Java']);
+    ['做五休二', '节假日福利', '五险二金', '全额公积金', '季度团建', '婚假', '月度绩效奖金', '带薪休假', '员工团建', '生育'].forEach((w) => {
+      expect(sum.skills[w]).toBeUndefined();
+    });
+    // 真实技能不受影响
+    expect(sum.skills['Vue']).toBe(1);
+    expect(sum.skills['Java']).toBe(1);
+  });
+
+  it('测试/设计/运维/数据库 等真实技能词根不被误伤', () => {
+    const jobs4 = [
+      { title: '测试开发', salary: '20-30万', source: '51job', tags: ['测试', '自动化测试', '软件测试'] },
+      { title: '设计', salary: '20-30万', source: 'zhaopin-jobs', tags: ['UI设计', '设计'] },
+      { title: '运维', salary: '20-30万', source: 'liepin', tags: ['运维', '数据库', 'SQL'] },
+    ];
+    const sum = page.buildSummary(jobs4);
+    const names = sum.topSkills.map(([t]) => t);
+    ['测试', '自动化测试', '软件测试', 'UI设计', '设计', '运维', '数据库', 'SQL'].forEach((w) => {
+      expect(sum.skills[w]).toBe(1);
+    });
+  });
+
+  it('后端与前端输出一致（防分叉）', () => {
+    expect(backendBuildSummary(welfareJobs)).toEqual(page.buildSummary(welfareJobs));
+  });
+});
+
 describe('前端 buildMarkdown / mdTable（转义防线：\n 被吞则表格连成一行）', () => {
   const sum = page.buildSummary(jobs);
   const md = page.buildMarkdown(sum, jobs);
