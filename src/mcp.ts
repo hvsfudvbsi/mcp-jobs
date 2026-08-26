@@ -26,7 +26,7 @@ dotenv.config();
 const VERSION = '1.5.0';
 
 // Web 搜索页面（内嵌单文件，无需额外静态资源）
-const WEB_UI_HTML = `<!DOCTYPE html>
+export const WEB_UI_HTML = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -364,7 +364,9 @@ function renderSummary(sum) {
     : '<span style="color:#999">—</span>';
 }
 function mdTable(headers, rows) {
-  return '| ' + headers.join(' | ') + ' |\\n| ' + headers.map(() => '---').join(' | ') + ' |\\n' + rows.map(r => '| ' + r.join(' | ') + ' |').join('\\n');
+  // 单元格转义：竖线与换行不破坏 Markdown 表格结构
+  const escCell = v => String(v ?? '').replace(/\\|/g, '\\\\|').replace(/[\\r\\n]+/g, ' ');
+  return '| ' + headers.map(escCell).join(' | ') + ' |\\n| ' + headers.map(() => '---').join(' | ') + ' |\\n' + rows.map(r => '| ' + r.map(escCell).join(' | ') + ' |').join('\\n');
 }
 // 生成 Markdown 总结文档（含要求/技能/薪资/不同岗位分组与职位明细）
 function buildMarkdown(sum, jobs) {

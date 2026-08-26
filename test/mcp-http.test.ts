@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
-import vm from 'node:vm';
 import pkg from '../package.json';
 
 // 将爬虫边界替换为桩实现：不访问真实站点，专注验证 HTTP/Web 链路
@@ -13,6 +12,7 @@ vi.mock('../src/index', () => ({
 import { searchJobList } from '../src/index';
 import { runHttpServer } from '../src/mcp';
 import { buildSummary } from '../src/services/summaryService';
+import { evalPageFns } from './helpers';
 
 let server: Server;
 let base: string;
@@ -179,35 +179,6 @@ describe('/mcp 端点', () => {
     expect(data.summary.salaryMin).toBeGreaterThan(0);
   });
 });
-
-// 在 Node vm 沙箱中执行首页内嵌脚本并暴露纯函数（同时校验脚本可被浏览器解析）
-function evalPageFns(html: string) {
-  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
-  if (!script) throw new Error('页面中未找到 <script> 块');
-  const el = () => ({
-    textContent: '', innerHTML: '', style: {}, dataset: {},
-    firstChild: { textContent: '' },
-    classList: { add() {}, toggle() {}, contains: () => false },
-    addEventListener() {},
-  });
-  const sandbox: Record<string, unknown> = {
-    console,
-    location: { origin: 'http://localhost' },
-    document: { querySelector: () => el() },
-    FormData: class {
-      get() { return null; }
-    },
-    setTimeout, clearTimeout, setInterval, clearInterval,
-  };
-  const ctx = vm.createContext(sandbox);
-  vm.runInContext(script, ctx);
-  return ctx as unknown as {
-    normalizeTitle: (t: string) => string;
-    buildSummary: (jobs: unknown[]) => {
-      groupList: { title: string; count: number; salary: string; salaryMedian: string; skills: string }[];
-    };
-  };
-}
 
 describe('前后端总结逻辑一致性', () => {
   it('后端 buildSummary 与页面内嵌前端逻辑输出一致（防止分叉）', async () => {
