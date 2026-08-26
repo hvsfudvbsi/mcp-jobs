@@ -125,7 +125,7 @@ const WEB_UI_HTML = `<!DOCTYPE html>
     <div class="sum-sec"><span class="sum-sec-title">🛠 技能要求 Top</span><div id="sumSkillChips" class="sum-chips"></div></div>
     <div class="sum-sec"><span class="sum-sec-title">💰 薪资分布（万/年，月薪按 ×12 折算）</span><div id="sumBands" class="sum-chips"></div></div>
     <div class="sum-sec"><span class="sum-sec-title">🧭 不同岗位：要求/技能/薪资</span>
-      <table class="sum-table"><thead><tr><th>岗位方向</th><th>职位数</th><th>薪资区间</th><th>主要技能</th></tr></thead><tbody id="sumGroups"></tbody></table>
+      <table class="sum-table"><thead><tr><th>岗位方向</th><th>职位数</th><th>薪资区间</th><th>薪资中位数</th><th>主要技能</th></tr></thead><tbody id="sumGroups"></tbody></table>
     </div>
     <div class="sum-sec"><span class="sum-sec-title">🏢 热门公司</span><div id="sumCompanies" class="sum-cos"></div></div>
   </div>
@@ -269,13 +269,27 @@ function parseSalary(s) {
   return { lo, hi, mid: (lo + hi) / 2, text: str };
 }
 function fmtWan(n) { return (Math.round(n * 10) / 10) + '万'; }
-// 职位标题归一化：去掉级别/后缀词，聚合同类岗位方向
+// 职位标题归一化：转小写 + 去级别/括号/前后缀词，合并 前端/前端开发/Web前端 等同类岗位
 function normalizeTitle(t) {
-  let s = String(t || '').trim();
-  s = s.replace(/(高级|资深|初级|中级|主任|首席|实习|应届)/g, '');
-  s = s.replace(/(开发工程师|研发工程师|工程师|开发|专员|经理|主管|实习生)$/g, '');
-  s = s.replace(/[（(].*?[)）]/g, '').trim();
-  return s || '其他';
+  let s = String(t || '').trim().toLowerCase();
+  // 去掉括号内容（含中文括号/方括号）
+  s = s.replace(/[（(【].*?[)）】]/g, ' ');
+  // 分隔符统一替换为空格（中文竖线｜、顿号等）
+  s = s.replace(/[｜|/_、·,，:：-]+/g, ' ');
+  s = s.replace(/[ ]+/g, ' ');
+  // 去掉级别/前缀词（实习生 需在 实习 前，保证整词移除）
+  s = s.replace(/(高级|资深|初级|中级|主任|首席|实习生|实习|应届|助理|校招|社招)/g, ' ');
+  s = s.trim();
+  // 去掉 web 前缀（允许空格，仅当后接中文，避免误伤 webgl 等）
+  s = s.replace(/^web[ ]*(?=[\\u4e00-\\u9fa5])/, '');
+  s = s.trim();
+  // 循环剥除岗位后缀，聚合同类岗位方向
+  s = s.replace(/(开发工程师|研发工程师|软件工程师|工程师|设计师|开发|专员|经理|主管|运维|测试|设计|运营|顾问|专家)$/, '');
+  s = s.replace(/(开发工程师|研发工程师|软件工程师|工程师|设计师|开发|专员|经理|主管|运维|测试|设计|运营|顾问|专家)$/, '');
+  // 分隔符后的次要描述（如 -证券项目、｜小程序）不参与分组，取第一个词作为岗位方向
+  s = s.split(' ')[0];
+  s = s.replace(/(开发工程师|研发工程师|软件工程师|工程师|设计师|开发|专员|经理|主管|运维|测试|设计|运营|顾问|专家)$/, '');
+  return s.trim() || '其他';
 }
 function buildSummary(jobs) {
   const sum = {
@@ -311,7 +325,12 @@ function buildSummary(jobs) {
     const lo = mids.length ? fmtWan(mids[0]) : '—';
     const hi = mids.length ? fmtWan(mids[mids.length - 1]) : '';
     const skills = Object.entries(g.skills).sort((a, b) => b[1] - a[1]).slice(0, 5).map(x => x[0]).join('、') || '—';
-    return { title: g.title, count: g.count, salary: mids.length ? lo + ' ~ ' + hi : '—', skills };
+    let med = '—';
+    if (mids.length) {
+      const mi = Math.floor(mids.length / 2);
+      med = fmtWan(mids.length % 2 ? mids[mi] : (mids[mi - 1] + mids[mi]) / 2);
+    }
+    return { title: g.title, count: g.count, salary: mids.length ? lo + ' ~ ' + hi : '—', salaryMedian: med, skills };
   }).sort((a, b) => b.count - a.count);
   if (sum.salaries.length) {
     sum.salaries.sort((a, b) => a - b);
@@ -337,8 +356,8 @@ function renderSummary(sum) {
     .map(([k, v]) => '<span class="sum-chip">' + k + ' <b>' + v + '</b></span>').join('');
   const tb = $('#sumGroups');
   tb.innerHTML = sum.groupList.length
-    ? sum.groupList.map(g => '<tr><td class="g-title">' + esc(g.title) + '</td><td>' + g.count + '</td><td>' + esc(g.salary) + '</td><td>' + esc(g.skills) + '</td></tr>').join('')
-    : '<tr><td colspan="4" class="empty">暂无数据</td></tr>';
+    ? sum.groupList.map(g => '<tr><td class="g-title">' + esc(g.title) + '</td><td>' + g.count + '</td><td>' + esc(g.salary) + '</td><td>' + esc(g.salaryMedian) + '</td><td>' + esc(g.skills) + '</td></tr>').join('')
+    : '<tr><td colspan="5" class="empty">暂无数据</td></tr>';
   $('#sumCompanies').innerHTML = sum.topCompanies.length
     ? sum.topCompanies.map(([c, n]) => '<div class="co">' + esc(c) + ' <span>' + n + '</span></div>').join('')
     : '<span style="color:#999">—</span>';
@@ -370,8 +389,8 @@ function buildMarkdown(sum, jobs) {
   L.push(mdTable(['技能', '出现次数'], sum.topSkills.length ? sum.topSkills : [['—', 0]]));
   L.push('');
   L.push('### 🧭 不同岗位（要求/技能/薪资）');
-  L.push(mdTable(['岗位方向', '职位数', '薪资区间', '主要技能'],
-    sum.groupList.length ? sum.groupList.map(g => [g.title, String(g.count), g.salary, g.skills]) : [['—', 0, '—', '—']]));
+  L.push(mdTable(['岗位方向', '职位数', '薪资区间', '薪资中位数', '主要技能'],
+    sum.groupList.length ? sum.groupList.map(g => [g.title, String(g.count), g.salary, g.salaryMedian, g.skills]) : [['—', 0, '—', '—', '—']]));
   L.push('');
   L.push('### 🏢 热门公司');
   if (sum.topCompanies.length) sum.topCompanies.forEach(([c, n], i) => L.push((i + 1) + '. ' + c + '（' + n + '）'));

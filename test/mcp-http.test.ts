@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
+import vm from 'node:vm';
 import pkg from '../package.json';
 
 // 将爬虫边界替换为桩实现：不访问真实站点，专注验证 HTTP/Web 链路
@@ -88,7 +89,9 @@ describe('HTTP 服务', () => {
     expect(html).toContain('function buildSummary');
     expect(html).toContain('function buildMarkdown');
     expect(html).toContain('function parseSalary');
+    expect(html).toContain('function normalizeTitle');
     expect(html).toContain('id="sumGroups"');
+    expect(html).toContain('薪资中位数');
   });
 
   it('OPTIONS 预检返回 204 与 CORS 头', async () => {
@@ -146,5 +149,76 @@ describe('/mcp 端点', () => {
     const payload = await mcpRequest('tools/list');
     const names = payload.result.tools.map((t: { name: string }) => t.name);
     expect(names).toEqual(expect.arrayContaining(['mcp_search_job', 'mcp_job_detail']));
+  });
+});
+
+// 在 Node vm 沙箱中执行首页内嵌脚本并暴露纯函数（同时校验脚本可被浏览器解析）
+function evalPageFns(html: string) {
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+  if (!script) throw new Error('页面中未找到 <script> 块');
+  const el = () => ({
+    textContent: '', innerHTML: '', style: {}, dataset: {},
+    firstChild: { textContent: '' },
+    classList: { add() {}, toggle() {}, contains: () => false },
+    addEventListener() {},
+  });
+  const sandbox: Record<string, unknown> = {
+    console,
+    location: { origin: 'http://localhost' },
+    document: { querySelector: () => el() },
+    FormData: class {
+      get() { return null; }
+    },
+    setTimeout, clearTimeout, setInterval, clearInterval,
+  };
+  const ctx = vm.createContext(sandbox);
+  vm.runInContext(script, ctx);
+  return ctx as unknown as {
+    normalizeTitle: (t: string) => string;
+    buildSummary: (jobs: unknown[]) => {
+      groupList: { title: string; count: number; salary: string; salaryMedian: string; skills: string }[];
+    };
+  };
+}
+
+describe('岗位标题归一化与分组薪资', () => {
+  it('前端/前端开发/Web前端/web前端 合并为一组，且薪资按组统计', async () => {
+    const res = await fetch(`${base}/`);
+    const html = await res.text();
+    const { normalizeTitle, buildSummary } = evalPageFns(html);
+
+    // 各类写法归一到同一组
+    expect(normalizeTitle('前端')).toBe('前端');
+    expect(normalizeTitle('前端开发')).toBe('前端');
+    expect(normalizeTitle('Web前端')).toBe('前端');
+    expect(normalizeTitle('web前端')).toBe('前端');
+    expect(normalizeTitle('前端开发工程师')).toBe('前端');
+    expect(normalizeTitle('Web前端开发工程师')).toBe('前端');
+    // 词间空格不影响归并：前端开发 实习生 / web 前端 也归入前端
+    expect(normalizeTitle('前端开发 实习生')).toBe('前端');
+    expect(normalizeTitle('web 前端')).toBe('前端');
+    // 级别词在 web 前不影响归并；业务线后缀/竖线/方括号内容被剔除
+    expect(normalizeTitle('中级web前端开发工程师')).toBe('前端');
+    expect(normalizeTitle('前端开发-证券项目')).toBe('前端');
+    expect(normalizeTitle('前端｜小程序工程师')).toBe('前端');
+    expect(normalizeTitle('前端开发【到12月底~全额五险一金】')).toBe('前端');
+    // web 前缀只在中文字符前剥离，避免误伤 webgl 等
+    expect(normalizeTitle('WebGL开发')).toBe('webgl');
+
+    const jobs = [
+      { title: '前端', salary: '20-30万', source: 'a', tags: [] },
+      { title: '前端开发', salary: '25-35万·13薪', source: 'a', tags: [] },
+      { title: 'Web前端', salary: '30-40万/年', source: 'b', tags: [] },
+      { title: 'web前端', salary: '2-3万', source: 'c', tags: [] },
+      { title: 'Java后端', salary: '35-50万', source: 'a', tags: [] },
+    ];
+    const sum = buildSummary(jobs);
+    expect(sum.groupList).toHaveLength(2);
+    const front = sum.groupList.find((g) => g.title === '前端');
+    expect(front).toBeTruthy();
+    expect(front!.count).toBe(4);
+    // 前端组薪资来自 4 个职位（月薪×12 / 年薪混算），区间与中位数均被统计
+    expect(front!.salary).not.toBe('—');
+    expect(front!.salaryMedian).not.toBe('—');
   });
 });
