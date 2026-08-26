@@ -57,10 +57,11 @@ export function parseSalary(s: string | null | undefined): ParsedSalary | null {
   if (!m) return null;
   let lo = parseFloat(m[1]);
   let hi = parseFloat(m[2]);
-  const annual = /年|薪/.test(str);
   const isK = /k/i.test(m[3]);
   if (isK) { lo = lo / 10; hi = hi / 10; }   // K → 万（月薪）
-  if (!annual) { lo *= 12; hi *= 12; }       // 默认月薪，×12 折成年薪
+  // 年薪标记（年/薪）仅在单位为万时生效；K 一律按月薪 ×12 折成年薪
+  const annual = !isK && /年|薪/.test(str);
+  if (!annual) { lo *= 12; hi *= 12; }
   if (lo > hi) { const t = lo; lo = hi; hi = t; }
   return { lo, hi, mid: (lo + hi) / 2, text: str };
 }

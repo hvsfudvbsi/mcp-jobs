@@ -33,8 +33,8 @@ describe('前端 parseSalary（转义防线：\d/\s 被吞则此处数值全错�
     expect(page.parseSalary('15-25K')).toEqual({ lo: 18, hi: 30, mid: 24, text: '15-25K' });
   });
 
-  it('K 但带 薪 标记时保持现行解析（不 ×12）', () => {
-    expect(page.parseSalary('30-40K·14薪')).toEqual({ lo: 3, hi: 4, mid: 3.5, text: '30-40K·14薪' });
+  it('K 带 薪 标记仍是月薪：30-40K·14薪 → ×12 折成年薪 36-48万', () => {
+    expect(page.parseSalary('30-40K·14薪')).toEqual({ lo: 36, hi: 48, mid: 42, text: '30-40K·14薪' });
   });
 
   it('支持 ~ / 至 分隔符与反序区间', () => {
@@ -67,10 +67,10 @@ describe('前端 buildSummary', () => {
 
   it('薪资 band 分布与整体区间/中位数', () => {
     expect(sum.salaries.length).toBe(5);
-    expect(sum.bands).toEqual({ '<10万': 1, '10-20万': 0, '20-30万': 0, '30-50万': 3, '50万+': 1 });
-    expect(sum.salaryMin).toBe(3.5);
+    expect(sum.bands).toEqual({ '<10万': 0, '10-20万': 0, '20-30万': 0, '30-50万': 4, '50万+': 1 });
+    expect(sum.salaryMin).toBe(30);
     expect(sum.salaryMax).toBe(300);
-    expect(sum.salaryMedian).toBe(30);
+    expect(sum.salaryMedian).toBe(42);
   });
 
   it('前端系标题归一为一组，含薪资区间/中位数/技能', () => {
@@ -78,8 +78,8 @@ describe('前端 buildSummary', () => {
     const front = sum.groupList.find((g) => g.title === '前端');
     expect(front).toBeTruthy();
     expect(front!.count).toBe(4);
-    expect(front!.salary).toBe('3.5万 ~ 300万');
-    expect(front!.salaryMedian).toBe('30万');
+    expect(front!.salary).toBe('30万 ~ 300万');
+    expect(front!.salaryMedian).toBe('36万');
     expect(front!.skills).toBe('Vue、TypeScript、React、CSS');
     // 按职位数降序
     expect(sum.groupList[0].title).toBe('前端');
@@ -114,7 +114,7 @@ describe('前端 buildMarkdown / mdTable（转义防线：\n 被吞则表格连�
   });
 
   it('岗位分组表包含合并后的前端行（职位数/薪资区间/中位数/技能）', () => {
-    expect(md).toContain('| 前端 | 4 | 3.5万 ~ 300万 | 30万 | Vue、TypeScript、React、CSS |');
+    expect(md).toContain('| 前端 | 4 | 30万 ~ 300万 | 36万 | Vue、TypeScript、React、CSS |');
     expect(md).toContain('| 可解析薪资职位 | 5 / 5 |');
   });
 
