@@ -140,6 +140,50 @@ describe('前端 buildMarkdown / mdTable（转义防线：\n 被吞则表格连�
   });
 });
 
+describe('Web 导出：脏数据（| 与换行）', () => {
+  const dirtyJobs = [
+    { title: '前端|小程序\n（急招）', salary: '20-30万', company: 'A|B 公司', address: '北京\n海淀', source: '51job', tags: ['Vue\n框架', 'React'], jobDetail: 'https://x/job/1' },
+    { title: '后端开发', salary: '30-40万', company: 'C公司', address: '上海', source: 'zhaopin-jobs', tags: [], jobDetail: '' },
+  ];
+
+  it('csvCell 对 |、逗号、引号、换行正确加引号转义', () => {
+    expect(page.csvCell('前端|小程序')).toBe('"前端|小程序"');
+    expect(page.csvCell('前端,小程序')).toBe('"前端,小程序"');
+    expect(page.csvCell('前端"开发')).toBe('"前端""开发"');
+    expect(page.csvCell('前端\n开发')).toBe('"前端\n开发"');
+    expect(page.csvCell(['Vue', 'React'])).toBe('"Vue | React"');
+    expect(page.csvCell(undefined)).toBe('""');
+    expect(page.csvCell(null)).toBe('""');
+  });
+
+  it('CSV 行：脏数据各字段均被引号包裹且内容完整保留', () => {
+    const job0 = dirtyJobs[0] as Record<string, unknown>;
+    const cells = ['title', 'company', 'salary', 'address', 'jobDetail', 'tags', 'source'].map((f) => page.csvCell(job0[f]));
+    expect(cells).toHaveLength(7);
+    cells.forEach((c) => {
+      expect(c.startsWith('"')).toBe(true);
+      expect(c.endsWith('"')).toBe(true);
+    });
+    expect(cells[0]).toBe('"前端|小程序\n（急招）"');
+    expect(cells[3]).toBe('"北京\n海淀"');
+    expect(cells[5]).toBe('"Vue\n框架 | React"');
+  });
+
+  it('buildMarkdown：| 转义、换行折叠，职位表格结构不被破坏', () => {
+    const md = page.buildMarkdown(page.buildSummary(dirtyJobs), dirtyJobs);
+    expect(md).toContain('前端\\|小程序 （急招）');
+    expect(md).toContain('A\\|B 公司');
+    expect(md).toContain('北京 海淀');
+    const jobSection = md.split('## 📋 职位列表（')[1] || '';
+    const lines = jobSection.split('\n').filter((l) => l.startsWith('|'));
+    expect(lines.length).toBe(2 + dirtyJobs.length);
+    const cols = (l: string) => l.replace(/\\\|/g, '').split('|').length;
+    const headerCols = cols(lines[0]);
+    expect(headerCols).toBe(8);
+    lines.forEach((l) => expect(cols(l)).toBe(headerCols));
+  });
+});
+
 describe('单一源码（页面脚本由 summaryService 生成注入）', () => {
   it('页面中 parseSalary/buildSummary 各仅一份定义，且与后端源码一致', () => {
     // 注入方式：getSummaryCoreSource() 把 summaryService 编译后源码拼进页面脚本

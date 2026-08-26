@@ -128,6 +128,21 @@ describe('/api/search', () => {
     );
   });
 
+  it('返回含 | 与换行的脏数据职位，JSON 往返不丢失内容', async () => {
+    vi.mocked(searchJobList).mockResolvedValue([
+      { title: '前端|小程序\n（急招）', salary: '20-30万', company: 'A|B 公司', address: '北京\n海淀', jobDetail: 'https://x/job/1', tags: ['Vue\n框架', 'React'], source: '51job' },
+    ]);
+    const res = await fetch(`${base}/api/search?keyword=${encodeURIComponent('前端')}`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.jobs).toHaveLength(1);
+    expect(body.jobs[0].title).toBe('前端|小程序\n（急招）');
+    expect(body.jobs[0].company).toBe('A|B 公司');
+    expect(body.jobs[0].address).toBe('北京\n海淀');
+    expect(body.jobs[0].tags).toEqual(['Vue\n框架', 'React']);
+    expect(body.jobs[0].source).toBe('51job');
+  });
+
   it('缺少 keyword 参数返回 400', async () => {
     const res = await fetch(`${base}/api/search`);
     expect(res.status).toBe(400);

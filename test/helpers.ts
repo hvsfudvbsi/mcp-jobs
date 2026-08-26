@@ -25,6 +25,7 @@ export interface PageFns {
   buildSummary: (jobs: unknown[]) => SummaryShape;
   buildMarkdown: (sum: unknown, jobs: unknown[]) => string;
   mdTable: (headers: string[], rows: string[][]) => string;
+  csvCell: (v: unknown) => string;
 }
 
 // 在 Node vm 沙箱中执行页面内嵌脚本并暴露纯函数。
@@ -57,5 +58,6 @@ export function evalPageFns(html: string): PageFns {
     buildSummary: anyCtx.buildSummary as PageFns['buildSummary'],
     buildMarkdown: anyCtx.buildMarkdown as PageFns['buildMarkdown'],
     mdTable: anyCtx.mdTable as PageFns['mdTable'],
+    csvCell: anyCtx.csvCell as PageFns['csvCell'],
   };
 }
