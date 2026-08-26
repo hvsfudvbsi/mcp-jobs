@@ -1,6 +1,7 @@
-// 岗位要求总结服务：与 Web 页面内嵌的前端逻辑保持一一对应（见 src/mcp.ts WEB_UI_HTML）
-// 供 mcp_search_job 等后端入口直接计算总结数据，避免重复实现造成分叉。
-// 注意：修改此处逻辑时，必须同步更新前端内嵌的同名函数。
+// 岗位要求总结服务：后端计算 + 前端页面脚本的【单一源码】。
+// - 后端：mcp_search_job 等入口直接调用 buildSummary 计算总结数据。
+// - 前端：getSummaryCoreSource() 返回本文件纯函数的编译后源码，注入 WEB_UI_HTML，
+//   页面脚本不再手工拷贝一份，杜绝前后端逻辑分叉（也避免模板字符串转义问题）。
 
 export interface ParsedSalary {
   lo: number;
@@ -66,7 +67,7 @@ export function parseSalary(s: string | null | undefined): ParsedSalary | null {
   return { lo, hi, mid: (lo + hi) / 2, text: str };
 }
 
-function fmtWan(n: number): string {
+export function fmtWan(n: number): string {
   return (Math.round(n * 10) / 10) + '万';
 }
 
@@ -147,4 +148,13 @@ export function buildSummary(jobs: JobItem[]): Summary {
     sum.salaryMedian = sum.salaries.length % 2 ? sum.salaries[m] : (sum.salaries[m - 1] + sum.salaries[m]) / 2;
   }
   return sum;
+}
+
+// 把总结纯函数（parseSalary/fmtWan/normalizeTitle/buildSummary）的编译后源码拼接为字符串，
+// 供 src/mcp.ts 注入页面内嵌脚本——页面与后端共用同一份逻辑实现。
+// buildSummary 内部依赖的 parseSalary/fmtWan/normalizeTitle 均为函数声明，注入后提升可用。
+export function getSummaryCoreSource(): string {
+  return [parseSalary, fmtWan, normalizeTitle, buildSummary]
+    .map((fn) => fn.toString())
+    .join('\n');
 }

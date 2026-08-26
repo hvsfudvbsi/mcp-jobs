@@ -140,6 +140,17 @@ describe('前端 buildMarkdown / mdTable（转义防线：\n 被吞则表格连�
   });
 });
 
+describe('单一源码（页面脚本由 summaryService 生成注入）', () => {
+  it('页面中 parseSalary/buildSummary 各仅一份定义，且与后端源码一致', () => {
+    // 注入方式：getSummaryCoreSource() 把 summaryService 编译后源码拼进页面脚本
+    const defs = (WEB_UI_HTML.match(/function buildSummary\(/g) || []).length;
+    expect(defs).toBe(1);
+    expect((WEB_UI_HTML.match(/function parseSalary\(/g) || []).length).toBe(1);
+    // 页面内嵌的 buildSummary 源码与后端函数源码逐字一致（不是手工拷贝）
+    expect(WEB_UI_HTML).toContain(backendBuildSummary.toString().slice(0, 80));
+  });
+});
+
 describe('转义回归防线', () => {
   it('脚本若含真实换行（模板字符串吞掉 \\n）则立即报错', () => {
     // 模拟历史 bug：模板字符串把 L.join('\n') 的转义吞成真实换行 → 整段脚本语法错误

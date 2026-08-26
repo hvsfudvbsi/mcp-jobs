@@ -17,7 +17,10 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import dotenv from 'dotenv';
 import { searchJobList, crawlJobDetail, SearchParams } from './index';
-import { buildSummary } from './services/summaryService';
+import { buildSummary, getSummaryCoreSource } from './services/summaryService';
+
+// 页面内嵌脚本的总结纯逻辑：直接注入 summaryService 编译后源码（单一源码，避免前后端分叉）
+const SUMMARY_CORE_SOURCE = getSummaryCoreSource();
 
 
 dotenv.config();
@@ -252,97 +255,11 @@ function render(jobs) {
       return '<tr><td class="name">' + title + tags + '</td><td>' + esc(j.company) + '</td><td class="salary">' + esc(j.salary) + '</td><td>' + esc(j.address || j.location || '') + '</td><td>' + esc(j.publishTime || j.time || '') + '</td><td class="src">' + esc(j.source || '') + '</td></tr>';
     }).join('');
   }
-}
+}// ===== 岗位要求总结 =====
+// 纯逻辑（parseSalary/fmtWan/normalizeTitle/buildSummary）由 summaryService 注入，单一源码避免前后端分叉
+${SUMMARY_CORE_SOURCE}
+// ===== 岗位要求总结 UI + MD 导出（页面专属）=====
 
-// ===== 岗位要求总结 + MD 导出 =====
-// 解析薪资文本为年薪区间（万/年）："2-4万·14薪"/"25-38万/年" → 年薪；"2-4万"/"15-25K" 视为月薪 ×12 折算
-function parseSalary(s) {
-  if (!s) return null;
-  const str = String(s);
-  const m = str.match(/(\\d+(?:\\.\\d+)?)\\s*[-~至]\\s*(\\d+(?:\\.\\d+)?)\\s*(万|k|K)/);
-  if (!m) return null;
-  let lo = parseFloat(m[1]), hi = parseFloat(m[2]);
-  const isK = /k/i.test(m[3]);
-  if (isK) { lo = lo / 10; hi = hi / 10; }   // K → 万（月薪）
-  // 年薪标记（年/薪）仅在单位为万时生效；K 一律按月薪 ×12 折成年薪
-  const annual = !isK && /年|薪/.test(str);
-  if (!annual) { lo *= 12; hi *= 12; }
-  if (lo > hi) { const t = lo; lo = hi; hi = t; }
-  return { lo, hi, mid: (lo + hi) / 2, text: str };
-}
-function fmtWan(n) { return (Math.round(n * 10) / 10) + '万'; }
-// 职位标题归一化：转小写 + 去级别/括号/前后缀词，合并 前端/前端开发/Web前端 等同类岗位
-function normalizeTitle(t) {
-  let s = String(t || '').trim().toLowerCase();
-  // 去掉括号内容（含中文括号/方括号）
-  s = s.replace(/[（(【].*?[)）】]/g, ' ');
-  // 分隔符统一替换为空格（中文竖线｜、顿号等）
-  s = s.replace(/[｜|/_、·,，:：-]+/g, ' ');
-  s = s.replace(/[ ]+/g, ' ');
-  // 去掉级别/前缀词（实习生 需在 实习 前，保证整词移除）
-  s = s.replace(/(高级|资深|初级|中级|主任|首席|实习生|实习|应届|助理|校招|社招)/g, ' ');
-  s = s.trim();
-  // 去掉 web 前缀（允许空格，仅当后接中文，避免误伤 webgl 等）
-  s = s.replace(/^web[ ]*(?=[\\u4e00-\\u9fa5])/, '');
-  s = s.trim();
-  // 循环剥除岗位后缀，聚合同类岗位方向
-  s = s.replace(/(开发工程师|研发工程师|软件工程师|工程师|设计师|开发|专员|经理|主管|运维|测试|设计|运营|顾问|专家)$/, '');
-  s = s.replace(/(开发工程师|研发工程师|软件工程师|工程师|设计师|开发|专员|经理|主管|运维|测试|设计|运营|顾问|专家)$/, '');
-  // 分隔符后的次要描述（如 -证券项目、｜小程序）不参与分组，取第一个词作为岗位方向
-  s = s.split(' ')[0];
-  s = s.replace(/(开发工程师|研发工程师|软件工程师|工程师|设计师|开发|专员|经理|主管|运维|测试|设计|运营|顾问|专家)$/, '');
-  return s.trim() || '其他';
-}
-function buildSummary(jobs) {
-  const sum = {
-    total: jobs.length, sources: {}, skills: {}, companies: {}, groups: {},
-    salaries: [], bands: { '<10万': 0, '10-20万': 0, '20-30万': 0, '30-50万': 0, '50万+': 0 },
-  };
-  jobs.forEach(j => {
-    const src = j.source || '未知来源';
-    sum.sources[src] = (sum.sources[src] || 0) + 1;
-    const tags = Array.isArray(j.tags) ? j.tags : [];
-    tags.forEach(t => { sum.skills[t] = (sum.skills[t] || 0) + 1; });
-    const co = j.company || '未知公司';
-    sum.companies[co] = (sum.companies[co] || 0) + 1;
-    const g = normalizeTitle(j.title);
-    const grp = sum.groups[g] = sum.groups[g] || { title: g, count: 0, salaries: [], skills: {} };
-    grp.count++;
-    tags.forEach(t => { grp.skills[t] = (grp.skills[t] || 0) + 1; });
-    const p = parseSalary(j.salary);
-    if (p) {
-      sum.salaries.push(p.mid);
-      grp.salaries.push(p);
-      if (p.mid < 10) sum.bands['<10万']++;
-      else if (p.mid < 20) sum.bands['10-20万']++;
-      else if (p.mid < 30) sum.bands['20-30万']++;
-      else if (p.mid < 50) sum.bands['30-50万']++;
-      else sum.bands['50万+']++;
-    }
-  });
-  sum.topSkills = Object.entries(sum.skills).sort((a, b) => b[1] - a[1]).slice(0, 10);
-  sum.topCompanies = Object.entries(sum.companies).sort((a, b) => b[1] - a[1]).slice(0, 5);
-  sum.groupList = Object.values(sum.groups).map(g => {
-    const mids = g.salaries.map(x => x.mid).sort((a, b) => a - b);
-    const lo = mids.length ? fmtWan(mids[0]) : '—';
-    const hi = mids.length ? fmtWan(mids[mids.length - 1]) : '';
-    const skills = Object.entries(g.skills).sort((a, b) => b[1] - a[1]).slice(0, 5).map(x => x[0]).join('、') || '—';
-    let med = '—';
-    if (mids.length) {
-      const mi = Math.floor(mids.length / 2);
-      med = fmtWan(mids.length % 2 ? mids[mi] : (mids[mi - 1] + mids[mi]) / 2);
-    }
-    return { title: g.title, count: g.count, salary: mids.length ? lo + ' ~ ' + hi : '—', salaryMedian: med, skills };
-  }).sort((a, b) => b.count - a.count);
-  if (sum.salaries.length) {
-    sum.salaries.sort((a, b) => a - b);
-    sum.salaryMin = sum.salaries[0];
-    sum.salaryMax = sum.salaries[sum.salaries.length - 1];
-    const m = Math.floor(sum.salaries.length / 2);
-    sum.salaryMedian = sum.salaries.length % 2 ? sum.salaries[m] : (sum.salaries[m - 1] + sum.salaries[m]) / 2;
-  }
-  return sum;
-}
 function renderSummary(sum) {
   const panel = $('#summaryPanel');
   if (!sum.total) { panel.style.display = 'none'; return; }
