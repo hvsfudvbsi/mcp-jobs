@@ -251,6 +251,24 @@ describe('/mcp 端点', () => {
     expect(queryCompanySalary).toHaveBeenCalledWith('腾讯, 阿里巴巴');
   });
 
+  it('tools/call mcp_company_salary 支持 role 岗位参数', async () => {
+    vi.mocked(queryCompanySalary).mockResolvedValue([{
+      company: '腾讯', slug: 'tencent', role: 'data-scientist',
+      url: 'https://www.levels.fyi/companies/tencent/salaries/data-scientist',
+      range: '$80K-$500K+', currency: '$',
+      levels: [{ level: 'T5', total: '$120K', base: '', stock: '', bonus: '' }],
+    }]);
+    const payload = await mcpRequest('tools/call', {
+      name: 'mcp_company_salary',
+      arguments: { company: '腾讯', role: 'data-scientist' },
+    });
+    expect(payload.result.isError).toBe(false);
+    const data = JSON.parse(payload.result.content[0].text);
+    expect(data.companySalaryRefs[0]).toMatchObject({ slug: 'tencent', role: 'data-scientist' });
+    expect(data.metadata.role).toBe('data-scientist');
+    expect(queryCompanySalary).toHaveBeenCalledWith('腾讯', { role: 'data-scientist' });
+  });
+
   it('tools/call mcp_company_salary 缺少 company 参数时报参数错误', async () => {
     const payload = await mcpRequest('tools/call', {
       name: 'mcp_company_salary',

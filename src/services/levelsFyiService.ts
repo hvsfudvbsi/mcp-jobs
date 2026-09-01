@@ -22,6 +22,7 @@ export interface SalaryLevelRow {
 export interface CompanySalaryRef {
   company: string;             // 搜索结果中的公司名
   slug: string;                // Levels.fyi 公司 slug（如 tencent / alibaba）
+  role: string;                // 岗位 slug（如 software-engineer / data-scientist）
   url: string;                 // 薪资页 URL
   range: string;               // 页标题薪资区间，如 "CN¥347K-CN¥2M+"
   currency: 'CN¥' | '$' | '';  // 币种标记
@@ -39,6 +40,7 @@ export interface SalaryRefOptions {
   pageTimeout?: number;   // 单页超时 ms（默认 20000）
   maxRetryMs?: number;    // 等待表格渲染的最大重试窗口 ms（默认 8000）
   cacheTtlMs?: number;    // 缓存 TTL（默认 12h）
+  role?: string;          // 岗位 slug（如 software-engineer / data-scientist），默认 software-engineer
   fetcher?: (slug: string, url: string) => Promise<CompanySalaryRef | null>; // 测试注入
 }
 
@@ -165,7 +167,16 @@ export function pickTopCompanies(companies: SalaryRefTarget[], limit: number): S
     .slice(0, Math.max(1, limit));
 }
 
+const DEFAULT_ROLE = 'software-engineer';
 const DEFAULT_CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 小时
+
+// 岗位参数归一化："data scientist" / "Data-Scientist" → data-scientist；空值回退默认岗位
+export function normalizeRole(role?: string | null): string {
+  const r = String(role || '').trim().toLowerCase();
+  if (!r) return DEFAULT_ROLE;
+  const s = r.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return s || DEFAULT_ROLE;
+}
 
 // 内存缓存：同一 slug 在 TTL 内不重复抓取（null 表示 404/无数据，同样缓存）
 const cache = new Map<string, { ts: number; ref: CompanySalaryRef | null }>();
@@ -285,11 +296,11 @@ async function extractWithRetry(
 
 // 真实浏览器路径：单浏览器 + 多页面并发池，避免每公司起一个浏览器
 async function fetchSalaryRefsWithBrowser(
-  jobs: Array<{ name: string; slug: string; url: string }>,
+  jobs: Array<{ name: string; slug: string; url: string; role: string; cacheKey: string }>,
   concurrency: number,
   pageTimeout: number,
   maxRetryMs: number
-): Promise<Array<{ name: string; slug: string; ref: CompanySalaryRef | null }>> {
+): Promise<Array<{ name: string; slug: string; cacheKey: string; ref: CompanySalaryRef | null }>> {
   const browser: Browser = await chromium.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-blink-features=AutomationControlled'],
@@ -299,7 +310,7 @@ async function fetchSalaryRefsWithBrowser(
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     locale: 'en-US',
   });
-  const results: Array<{ name: string; slug: string; ref: CompanySalaryRef | null }> = [];
+  const results: Array<{ name: string; slug: string; cacheKey: string; ref: CompanySalaryRef | null }> = [];
   const queue = [...jobs];
   const worker = async (): Promise<void> => {
     while (queue.length) {
@@ -311,14 +322,14 @@ async function fetchSalaryRefsWithBrowser(
         const { levels, range } = await extractWithRetry(page, maxRetryMs);
         if (levels.length || range) {
           const currency = /CN¥/.test(levels[0]?.total || range) ? 'CN¥' : '$';
-          ref = { company: job.name, slug: job.slug, url: job.url, range, currency, levels };
+          ref = { company: job.name, slug: job.slug, role: job.role, url: job.url, range, currency, levels };
         }
       } catch (error) {
         console.warn(`[levelsFyi] 抓取 ${job.slug} 失败: ${error instanceof Error ? error.message : String(error)}`);
       } finally {
         await page.close().catch(() => {});
       }
-      results.push({ name: job.name, slug: job.slug, ref });
+      results.push({ name: job.name, slug: job.slug, cacheKey: job.cacheKey, ref });
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, () => worker()));
@@ -342,24 +353,26 @@ export async function fetchCompanySalaryRefs(
 
   const picked = pickTopCompanies(companies, limit);
   const now = Date.now();
+  const role = normalizeRole(opts.role);
   const refs: CompanySalaryRef[] = [];
-  const pending: Array<{ name: string; slug: string; url: string }> = [];
+  const pending: Array<{ name: string; slug: string; url: string; role: string; cacheKey: string }> = [];
 
   for (const t of picked) {
     const slug = resolveCompanySlug(t.name);
     if (!slug) continue;
-    const url = `https://www.levels.fyi/companies/${slug}/salaries/software-engineer`;
-    const hit = cache.get(slug);
+    const url = `https://www.levels.fyi/companies/${slug}/salaries/${role}`;
+    const cacheKey = `${slug}/${role}`; // 缓存按 公司+岗位 区分
+    const hit = cache.get(cacheKey);
     if (hit && now - hit.ts < cacheTtlMs) {
       if (hit.ref) refs.push(hit.ref);
       continue;
     }
-    pending.push({ name: t.name, slug, url });
+    pending.push({ name: t.name, slug, url, role, cacheKey });
   }
 
   if (!pending.length) return refs;
 
-  let results: Array<{ name: string; slug: string; ref: CompanySalaryRef | null }>;
+  let results: Array<{ name: string; slug: string; cacheKey: string; ref: CompanySalaryRef | null }>;
   if (fetcher) {
     // 测试注入路径：单家失败不影响其余（逐家捕获）
     results = await Promise.all(
@@ -370,7 +383,7 @@ export async function fetchCompanySalaryRefs(
         } catch (error) {
           console.warn(`[levelsFyi] ${job.slug} 获取失败（忽略）: ${error instanceof Error ? error.message : String(error)}`);
         }
-        return { name: job.name, slug: job.slug, ref };
+        return { name: job.name, slug: job.slug, cacheKey: job.cacheKey, ref };
       })
     );
   } else {
@@ -379,7 +392,7 @@ export async function fetchCompanySalaryRefs(
 
   for (const r of results) {
     if (r.ref) refs.push({ ...r.ref, company: r.name });
-    cache.set(r.slug, { ts: Date.now(), ref: r.ref });
+    cache.set(r.cacheKey, { ts: Date.now(), ref: r.ref });
   }
 
   return refs;

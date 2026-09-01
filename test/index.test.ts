@@ -172,6 +172,24 @@ describe('queryCompanySalary 独立公司薪资查询', () => {
     expect(fetchCompanySalaryRefs).not.toHaveBeenCalled();
   });
 
+  it('透传 role 岗位参数', async () => {
+    vi.mocked(fetchCompanySalaryRefs).mockResolvedValue([]);
+    await queryCompanySalary('腾讯', { role: 'data-scientist' });
+    expect(fetchCompanySalaryRefs).toHaveBeenCalledWith(
+      [{ name: '腾讯', count: 1 }],
+      expect.objectContaining({ limit: 1, role: 'data-scientist' })
+    );
+  });
+
+  it('角色为空时不传 role 字段', async () => {
+    vi.mocked(fetchCompanySalaryRefs).mockResolvedValue([]);
+    await queryCompanySalary('腾讯');
+    expect(fetchCompanySalaryRefs).toHaveBeenCalledWith(
+      [{ name: '腾讯', count: 1 }],
+      expect.not.objectContaining({ role: expect.anything() })
+    );
+  });
+
   it('服务抛错时降级为空数组', async () => {
     vi.mocked(fetchCompanySalaryRefs).mockRejectedValue(new Error('boom'));
     expect(await queryCompanySalary('腾讯')).toEqual([]);

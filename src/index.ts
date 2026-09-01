@@ -132,10 +132,11 @@ export async function enrichSalaryRefs(jobs: any[], limit?: number): Promise<Com
 }
 
 // 公司薪资参考独立查询：按公司名直接查 Levels.fyi 薪资（不依赖职位搜索）。
-// company 支持字符串（多个名称用英文逗号/中文逗号/顿号/空格分隔）或名称数组。
+// company 支持字符串（多个名称用英文逗号/中文逗号/顿号/空格分隔）或名称数组；
+// opts.role 指定岗位 slug（如 data-scientist），默认 software-engineer。
 export async function queryCompanySalary(
   company: string | string[],
-  opts: { limit?: number } = {}
+  opts: { limit?: number; role?: string } = {}
 ): Promise<CompanySalaryRef[]> {
   try {
     // 数组或字符串统一按分隔符拆分（兼容 中文逗号/顿号/空格），再 trim 去空
@@ -149,7 +150,10 @@ export async function queryCompanySalary(
       .filter((n) => !seen.has(n) && seen.add(n))
       .map((name) => ({ name, count: 1 }));
     if (!targets.length) return [];
-    return await fetchCompanySalaryRefs(targets, { limit: opts.limit || targets.length });
+    return await fetchCompanySalaryRefs(targets, {
+      limit: opts.limit || targets.length,
+      ...(opts.role ? { role: opts.role } : {}),
+    });
   } catch (error) {
     console.warn('查询公司薪资参考失败（忽略）:', error instanceof Error ? error.message : String(error));
     return [];

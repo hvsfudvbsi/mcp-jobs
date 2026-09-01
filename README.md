@@ -286,7 +286,7 @@ npx -y mcp-jobs --http
 | `/mcp` | MCP 端点（StreamableHTTP 无状态模式） |
 | `/health` | 健康检查 |
 
-MCP 工具：`mcp_search_job`（职位搜索+岗位总结）、`mcp_job_detail`（职位详情+公司薪资参考）、`mcp_company_salary`（按公司名直接查 Levels.fyi 薪资参考，多公司用逗号/顿号分隔）
+MCP 工具：`mcp_search_job`（职位搜索+岗位总结）、`mcp_job_detail`（职位详情+公司薪资参考）、`mcp_company_salary`（按公司名/岗位查 Levels.fyi 薪资参考，多公司用逗号/顿号分隔，可用 `role` 指定岗位如 data-scientist，默认 software-engineer）
 
 > 💡 MCP 客户端（Cursor / Claude Desktop 等）既可用 `npx -y mcp-jobs`（stdio），
 > 也可用 `npx -y mcp-jobs --http` 后连接 `http://localhost:3000/mcp`（HTTP）。

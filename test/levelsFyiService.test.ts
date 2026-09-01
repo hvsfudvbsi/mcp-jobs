@@ -3,6 +3,7 @@ import {
   resolveCompanySlug,
   pickTopCompanies,
   fetchCompanySalaryRefs,
+  normalizeRole,
   clearSalaryRefCache,
   CompanySalaryRef,
 } from '../src/services/levelsFyiService';
@@ -100,6 +101,7 @@ describe('fetchCompanySalaryRefs（注入 fetcher）', () => {
   const ref = (slug: string): CompanySalaryRef => ({
     company: slug,
     slug,
+    role: 'software-engineer',
     url: `https://www.levels.fyi/companies/${slug}/salaries/software-engineer`,
     range: 'CN¥100K-CN¥500K+',
     currency: 'CN¥',
@@ -168,5 +170,24 @@ describe('fetchCompanySalaryRefs（注入 fetcher）', () => {
       { fetcher: vi.fn() }
     );
     expect(refs).toEqual([]);
+  });
+
+  it('支持按岗位 role 查询：URL 带岗位 slug，缓存按 公司+岗位 区分', async () => {
+    const fetcher = vi.fn(async (slug: string, url: string) => ref(slug));
+    await fetchCompanySalaryRefs([{ name: '腾讯', count: 1 }], { role: 'data-scientist', fetcher });
+    await fetchCompanySalaryRefs([{ name: '腾讯', count: 1 }], { role: 'data scientist', fetcher });
+    await fetchCompanySalaryRefs([{ name: '腾讯', count: 1 }], { role: 'software-engineer', fetcher });
+    // 归一化后 data-scientist 命中缓存不重复抓取；不同岗位单独抓取
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls[0][1]).toContain('/data-scientist');
+    expect(fetcher.mock.calls[1][1]).toContain('/software-engineer');
+  });
+
+  it('normalizeRole：常见写法归一化，空值回退默认岗位', () => {
+    expect(normalizeRole('data scientist')).toBe('data-scientist');
+    expect(normalizeRole('Data-Scientist')).toBe('data-scientist');
+    expect(normalizeRole('engineering manager')).toBe('engineering-manager');
+    expect(normalizeRole(undefined)).toBe('software-engineer');
+    expect(normalizeRole('')).toBe('software-engineer');
   });
 });

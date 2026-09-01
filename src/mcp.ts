@@ -407,13 +407,17 @@ const JOB_DETAIL_TOOL: Tool = {
 // 公司薪资参考工具定义（Levels.fyi）
 const COMPANY_SALARY_TOOL: Tool = {
   name: 'mcp_company_salary',
-  description: '按公司名称查询 Levels.fyi 薪资参考（级别 Total/Base/Stock/Bonus、薪资区间、详情链接）。多个公司名用英文逗号、中文逗号或顿号分隔，如 "腾讯, 阿里巴巴"。',
+  description: '按公司名称查询 Levels.fyi 薪资参考（级别 Total/Base/Stock/Bonus、薪资区间、详情链接）。多个公司名用英文逗号、中文逗号或顿号分隔，如 "腾讯, 阿里巴巴"。可用 role 指定岗位（默认 software-engineer）。',
   inputSchema: {
     type: 'object',
     properties: {
       company: {
         type: 'string',
         description: '公司名称（多个用逗号/顿号分隔）',
+      },
+      role: {
+        type: 'string',
+        description: '岗位 slug（Levels.fyi job family），如 software-engineer / data-scientist / engineering-manager / product-manager，默认 software-engineer',
       },
     },
     required: ['company'],
@@ -453,13 +457,14 @@ function isValidJobDetailParams(args: unknown): args is JobDetailParams {
 }
 
 // 参数验证函数 - 公司薪资参考
-function isValidCompanySalaryParams(args: unknown): args is { company: string } {
+function isValidCompanySalaryParams(args: unknown): args is { company: string; role?: string } {
   return (
     typeof args === 'object' &&
     args !== null &&
     'company' in args &&
     typeof (args as { company: unknown }).company === 'string' &&
-    (args as { company: string }).company.trim().length > 0
+    (args as { company: string }).company.trim().length > 0 &&
+    (('role' in args && typeof (args as { role?: unknown }).role === 'string') || !('role' in args))
   );
 }
 
@@ -643,15 +648,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error('查询公司薪资的参数格式无效，company 为必填公司名称（可用逗号/顿号分隔多个）');
         }
 
-        const { company } = args as { company: string };
+        const { company, role } = args as { company: string; role?: string };
 
         server.sendLoggingMessage({
           level: 'info',
-          data: `开始查询公司薪资参考: ${company}`,
+          data: `开始查询公司薪资参考: ${company}${role ? `（岗位 ${role}）` : ''}`,
         });
 
         try {
-          const companySalaryRefs = await queryCompanySalary(company);
+          const companySalaryRefs = role
+            ? await queryCompanySalary(company, { role })
+            : await queryCompanySalary(company);
           const companies = company.split(/[,，、\s]+/).map((s) => s.trim()).filter(Boolean);
 
           server.sendLoggingMessage({
@@ -663,6 +670,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             companySalaryRefs,
             metadata: {
               companies,
+              role: role || 'software-engineer',
               totalResults: companySalaryRefs.length,
             },
           };
@@ -684,6 +692,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 companySalaryRefs: [],
                 metadata: {
                   companies: company.split(/[,，、\s]+/).map((s) => s.trim()).filter(Boolean),
+                  role: role || 'software-engineer',
                   totalResults: 0,
                   error: '公司薪资参考查询失败，请稍后重试',
                 },
