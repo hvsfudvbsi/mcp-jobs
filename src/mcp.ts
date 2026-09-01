@@ -17,7 +17,7 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import dotenv from 'dotenv';
-import { searchJobList, crawlJobDetail, SearchParams } from './index';
+import { searchJobList, crawlJobDetail, enrichSalaryRefs, SearchParams } from './index';
 import { buildSummary, getSummaryCoreSource } from './services/summaryService';
 
 // 页面内嵌脚本的总结纯逻辑：直接注入 summaryService 编译后源码（单一源码，避免前后端分叉）
@@ -134,6 +134,10 @@ export const WEB_UI_HTML = `<!DOCTYPE html>
     </div>
     <div class="sum-sec"><span class="sum-sec-title">🏢 热门公司</span><div id="sumCompanies" class="sum-cos"></div></div>
   </div>
+  <div class="summary" id="salaryPanel" style="display:none">
+    <div class="sum-head">💰 公司薪资参考（Levels.fyi）</div>
+    <div id="salaryBody"></div>
+  </div>
   <div class="filter-bar" id="filterBar"></div>
   <table id="tbl" style="display:none">
     <thead><tr><th>职位</th><th>公司</th><th>薪资</th><th>地点</th><th>发布时间</th><th>来源</th></tr></thead>
@@ -147,7 +151,7 @@ export const WEB_UI_HTML = `<!DOCTYPE html>
 </div>
 <script>
 const $ = s => document.querySelector(s);
-let lastJobs = [], filteredJobs = [], curSource = 'all', curPage = 1;
+let lastJobs = [], filteredJobs = [], lastSalaryRefs = [], curSource = 'all', curPage = 1;
 const PAGE_SIZE = 10;
 let timerId = null;
 $('#mcpUrl').textContent = location.origin + '/mcp';
@@ -176,9 +180,11 @@ $('#f').addEventListener('submit', async e => {
     if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
     stopProgress();
     lastJobs = data.jobs || [];
+    lastSalaryRefs = data.salaryRefs || [];
     curSource = 'all'; curPage = 1;
     renderChips();
     applyFilter();
+    renderSalaryRefs(lastSalaryRefs);
     $('#exportBar').classList.toggle('show', lastJobs.length > 0);
     $('#status').firstChild.textContent = '✅ 共找到 ' + lastJobs.length + ' 个职位';
     $('#elapsed').textContent = '';
@@ -232,10 +238,10 @@ function exportData(fmt) {
     // BOM 头，保证 Excel 打开 CSV 中文不乱码
     blob = new Blob(['\\uFEFF' + rows.map(r => r.join(',')).join('\\r\\n')], { type: 'text/csv;charset=utf-8' });
   } else if (fmt === 'md') {
-    blob = new Blob([buildMarkdown(buildSummary(filteredJobs), filteredJobs)], { type: 'text/markdown;charset=utf-8' });
+    blob = new Blob([buildMarkdown(buildSummary(filteredJobs), filteredJobs, lastSalaryRefs)], { type: 'text/markdown;charset=utf-8' });
   } else {
-    // JSON 导出同时包含总结与职位列表
-    blob = new Blob([JSON.stringify({ summary: buildSummary(filteredJobs), jobs: filteredJobs }, null, 2)], { type: 'application/json;charset=utf-8' });
+    // JSON 导出同时包含总结、公司薪资参考与职位列表
+    blob = new Blob([JSON.stringify({ summary: buildSummary(filteredJobs), salaryRefs: lastSalaryRefs, jobs: filteredJobs }, null, 2)], { type: 'application/json;charset=utf-8' });
   }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -287,8 +293,19 @@ function mdTable(headers, rows) {
   const escCell = v => String(v ?? '').replace(/\\|/g, '\\\\|').replace(/[\\r\\n]+/g, ' ');
   return '| ' + headers.map(escCell).join(' | ') + ' |\\n| ' + headers.map(() => '---').join(' | ') + ' |\\n' + rows.map(r => '| ' + r.map(escCell).join(' | ') + ' |').join('\\n');
 }
-// 生成 Markdown 总结文档（含要求/技能/薪资/不同岗位分组与职位明细）
-function buildMarkdown(sum, jobs) {
+// 公司薪资参考面板（Levels.fyi）：公司 / 薪资范围 / 级别薪资 Total
+function renderSalaryRefs(refs) {
+  const panel = $('#salaryPanel');
+  if (!refs || !refs.length) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  $('#salaryBody').innerHTML = '<table class="sum-table"><thead><tr><th>公司</th><th>薪资范围</th><th>级别薪资（Total）</th></tr></thead><tbody>' + refs.map(r => {
+    const name = r.url ? '<a href="' + esc(r.url) + '" target="_blank">' + esc(r.company) + '</a>' : esc(r.company);
+    const levels = (r.levels || []).slice(0, 6).map(lv => '<span class="sum-chip">' + esc(lv.level) + ' <b>' + esc(lv.total) + '</b></span>').join('') || '—';
+    return '<tr><td class="g-title">' + name + '</td><td>' + esc(r.range || '—') + '</td><td>' + levels + '</td></tr>';
+  }).join('') + '</tbody></table>';
+}
+// 生成 Markdown 总结文档（含要求/技能/薪资/不同岗位分组/公司薪资参考与职位明细）
+function buildMarkdown(sum, jobs, salaryRefs) {
   const L = [];
   const fd = new FormData($('#f'));
   L.push('# 🎯 岗位搜索结果总结');
@@ -318,6 +335,17 @@ function buildMarkdown(sum, jobs) {
   if (sum.topCompanies.length) sum.topCompanies.forEach(([c, n], i) => L.push((i + 1) + '. ' + c + '（' + n + '）'));
   else L.push('—');
   L.push('');
+  const refs = salaryRefs || [];
+  if (refs.length) {
+    L.push('## 💰 公司薪资参考（Levels.fyi）');
+    L.push('');
+    L.push(mdTable(['公司', '薪资范围', '级别薪资（Total）'], refs.map(r => [
+      (r.company || '') + (r.url ? ' [' + r.url + '](' + r.url + ')' : ''),
+      r.range || '—',
+      (r.levels || []).slice(0, 6).map(lv => (lv.level || '') + ' ' + (lv.total || '')).join('、') || '—',
+    ])));
+    L.push('');
+  }
   L.push('## 📋 职位列表（' + jobs.length + ' 条）');
   L.push('');
   L.push(mdTable(['职位', '公司', '薪资', '地点', '来源', '详情'],
@@ -470,9 +498,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           // 附带岗位要求总结（与 Web 页面同一套逻辑）：技能 Top / 薪资分布 / 不同岗位分组薪资 / 热门公司
           const summary = buildSummary(results);
 
+          // 附带公司薪资参考（Levels.fyi）：结果中 Top 公司按级别薪资，失败自动降级为空数组
+          const companySalaryRefs = await enrichSalaryRefs(results);
+
           const responseData = {
             jobs: results,
             summary,
+            companySalaryRefs,
             metadata: {
               totalResults: results.length,
               searchParams: { keyword, city, page, salary, workYear },
@@ -676,8 +708,10 @@ export async function runHttpServer(port: number, host: string): Promise<http.Se
         };
         console.error(`[Web] 搜索职位: ${JSON.stringify(params)}`);
         const jobs = await searchJobList(params);
+        // 附带公司薪资参考（Levels.fyi），失败自动降级为空数组
+        const salaryRefs = await enrichSalaryRefs(jobs);
         res.writeHead(200, { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ total: jobs.length, jobs }));
+        res.end(JSON.stringify({ total: jobs.length, jobs, salaryRefs }));
       } catch (error) {
         console.error('[Web] 搜索失败:', error);
         res.writeHead(500, { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' });

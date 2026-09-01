@@ -278,6 +278,32 @@ describe('Web 导出：脏数据（| 与换行）', () => {
   });
 });
 
+describe('前端 buildMarkdown 公司薪资参考（Levels.fyi）', () => {
+  const sum = page.buildSummary(jobs);
+  const refs = [
+    {
+      company: '腾讯', url: 'https://www.levels.fyi/companies/tencent/salaries/software-engineer',
+      range: 'CN¥268K-CN¥2.29M+', currency: 'CN¥',
+      levels: [{ level: 'T5', total: 'CN¥500K', base: '', stock: '', bonus: '' }],
+    },
+  ];
+
+  it('传入 salaryRefs 时输出薪资参考章节（含公司/范围/级别薪资）', () => {
+    const md = page.buildMarkdown(sum, jobs, refs);
+    expect(md).toContain('## 💰 公司薪资参考（Levels.fyi）');
+    // 公司名带详情链接、范围与级别薪资在同一行
+    expect(md).toContain('腾讯 [https://www.levels.fyi/companies/tencent');
+    expect(md).toContain('CN¥268K-CN¥2.29M+ | T5 CN¥500K |');
+    // 参考章节位于热门公司与职位列表之间
+    expect(md.indexOf('公司薪资参考')).toBeGreaterThan(md.indexOf('热门公司'));
+    expect(md.indexOf('职位列表')).toBeGreaterThan(md.indexOf('公司薪资参考'));
+  });
+
+  it('不传 salaryRefs 时不输出该章节（旧调用兼容）', () => {
+    expect(page.buildMarkdown(sum, jobs)).not.toContain('公司薪资参考');
+  });
+});
+
 describe('单一源码（页面脚本由 summaryService 生成注入）', () => {
   it('页面中 parseSalary/buildSummary 各仅一份定义，且与后端源码一致', () => {
     // 注入方式：getSummaryCoreSource() 把 summaryService 编译后源码拼进页面脚本

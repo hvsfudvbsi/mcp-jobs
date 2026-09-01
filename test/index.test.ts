@@ -1,7 +1,13 @@
-import { describe, it, expect, vi } from 'vitest';
-import { searchJobList } from '../src/index';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { searchJobList, enrichSalaryRefs } from '../src/index';
 import type { CrawlFn } from '../src/index';
 import type { CrawlerData } from '../src/crawler/webCrawler';
+
+// enrichSalaryRefs 的网络抓取边界替换为桩实现
+vi.mock('../src/services/levelsFyiService', () => ({
+  fetchCompanySalaryRefs: vi.fn(),
+}));
+import { fetchCompanySalaryRefs } from '../src/services/levelsFyiService';
 
 // 构造某个站点返回的爬取结果（含 jobInfo 列表）
 function fakeDataset(source: string, count: number): CrawlerData[] {
@@ -86,5 +92,45 @@ describe('searchJobList 聚合逻辑', () => {
   it('不传 crawlFn 时默认使用真实爬取函数（不抛错，返回数组）', async () => {
     // 默认参数 = crawlByUrl；此测试仅验证签名兼容，不真正访问网络
     expect(typeof searchJobList).toBe('function');
+  });
+});
+
+describe('enrichSalaryRefs 公司薪资参考聚合', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('按公司出现次数统计并传给 fetchCompanySalaryRefs（Top limit）', async () => {
+    vi.mocked(fetchCompanySalaryRefs).mockResolvedValue([{
+      company: '腾讯', slug: 'tencent', url: 'https://www.levels.fyi/companies/tencent',
+      range: 'CN¥347K-CN¥2M+', currency: 'CN¥', levels: [],
+    }]);
+    const jobs = [
+      { company: '腾讯', title: 'a' },
+      { company: '腾讯', title: 'b' },
+      { company: '腾讯', title: 'c' },
+      { company: '阿里巴巴', title: 'd' },
+    ];
+    const refs = await enrichSalaryRefs(jobs, 3);
+    expect(fetchCompanySalaryRefs).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        { name: '腾讯', count: 3 },
+        { name: '阿里巴巴', count: 1 },
+      ]),
+      expect.objectContaining({ limit: 3 })
+    );
+    expect(refs).toHaveLength(1);
+  });
+
+  it('空职位/无公司字段返回空数组且不调用服务', async () => {
+    expect(await enrichSalaryRefs([])).toEqual([]);
+    expect(await enrichSalaryRefs([{ title: '无公司' }])).toEqual([]);
+    expect(fetchCompanySalaryRefs).not.toHaveBeenCalled();
+  });
+
+  it('服务抛错时降级为空数组，不向上抛出', async () => {
+    vi.mocked(fetchCompanySalaryRefs).mockRejectedValue(new Error('levels.fyi 不可用'));
+    const refs = await enrichSalaryRefs([{ company: '腾讯' }]);
+    expect(refs).toEqual([]);
   });
 });

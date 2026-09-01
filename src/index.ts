@@ -3,6 +3,7 @@ import { StorageService } from './services/storageService';
 import { crawlerConfigs } from './config/crawlerConfig';
 import { jobSearchUrls } from './config/urlConfig';
 import { CrawlerData } from './crawler/webCrawler';
+import { fetchCompanySalaryRefs, CompanySalaryRef } from './services/levelsFyiService';
 
 // 定义搜索参数接口
 export interface SearchParams {
@@ -110,6 +111,24 @@ export async function crawlJobDetail(url: string) {
     return null;
   }
   return result[0]?.data?.job || null;
+}
+
+// 职位搜索结果 → 公司薪资参考（Levels.fyi）：按职位数取 Top N 公司，抓取薪资页并附加参考。
+// 这是搜索响应的可选附加信息：任何失败都降级为空数组，不影响职位列表本身。
+export async function enrichSalaryRefs(jobs: any[], limit?: number): Promise<CompanySalaryRef[]> {
+  try {
+    const counts: Record<string, number> = {};
+    (jobs || []).forEach((j) => {
+      const name = String(j?.company || '').trim();
+      if (name) counts[name] = (counts[name] || 0) + 1;
+    });
+    const targets = Object.entries(counts).map(([name, count]) => ({ name, count }));
+    if (!targets.length) return []; // 无公司信息时直接短路，不触发抓取
+    return await fetchCompanySalaryRefs(targets, { limit: limit || 5 });
+  } catch (error) {
+    console.warn('获取公司薪资参考失败（忽略，不影响搜索结果）:', error instanceof Error ? error.message : String(error));
+    return [];
+  }
 }
 
 // 导出函数供外部使用

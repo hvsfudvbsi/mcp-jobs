@@ -7,9 +7,10 @@ import pkg from '../package.json';
 vi.mock('../src/index', () => ({
   searchJobList: vi.fn(),
   crawlJobDetail: vi.fn(),
+  enrichSalaryRefs: vi.fn(),
 }));
 
-import { searchJobList } from '../src/index';
+import { searchJobList, enrichSalaryRefs } from '../src/index';
 import { runHttpServer } from '../src/mcp';
 import { buildSummary } from '../src/services/summaryService';
 import { evalPageFns } from './helpers';
@@ -93,6 +94,10 @@ describe('HTTP 服务', () => {
     expect(html).toContain('function normalizeTitle');
     expect(html).toContain('id="sumGroups"');
     expect(html).toContain('薪资中位数');
+    // 公司薪资参考面板（Levels.fyi）
+    expect(html).toContain('id="salaryPanel"');
+    expect(html).toContain('公司薪资参考');
+    expect(html).toContain('function renderSalaryRefs');
   });
 
   it('OPTIONS 预检返回 204 与 CORS 头', async () => {
@@ -143,6 +148,25 @@ describe('/api/search', () => {
     expect(body.jobs[0].source).toBe('51job');
   });
 
+  it('返回附带 salaryRefs 公司薪资参考（Levels.fyi）', async () => {
+    vi.mocked(searchJobList).mockResolvedValue([
+      { title: '前端工程师', salary: '20-30万', company: '腾讯', address: '深圳', source: '51job', tags: [] },
+    ]);
+    vi.mocked(enrichSalaryRefs).mockResolvedValue([{
+      company: '腾讯', slug: 'tencent',
+      url: 'https://www.levels.fyi/companies/tencent/salaries/software-engineer',
+      range: 'CN¥268K-CN¥2.29M+', currency: 'CN¥',
+      levels: [{ level: 'T5', total: 'CN¥500K', base: 'CN¥400K', stock: 'CN¥30K', bonus: 'CN¥70K' }],
+    }]);
+    const res = await fetch(`${base}/api/search?keyword=${encodeURIComponent('前端')}`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.salaryRefs).toHaveLength(1);
+    expect(body.salaryRefs[0]).toMatchObject({ company: '腾讯', slug: 'tencent' });
+    // 薪资参考只与职位列表同源（公司名取自职位），不改变 jobs 本身
+    expect(body.jobs[0].company).toBe('腾讯');
+  });
+
   it('缺少 keyword 参数返回 400', async () => {
     const res = await fetch(`${base}/api/search`);
     expect(res.status).toBe(400);
@@ -173,6 +197,11 @@ describe('/mcp 端点', () => {
       { title: 'Web前端工程师', salary: '25-35万·13薪', company: 'B公司', address: '深圳', source: 'zhaopin-jobs', tags: ['React'] },
       { title: 'Java开发', salary: '30-40万', company: 'C公司', address: '上海', source: '51job', tags: ['Java', 'Spring'] },
     ]);
+    vi.mocked(enrichSalaryRefs).mockResolvedValue([{
+      company: 'A公司', slug: 'testco',
+      url: 'https://www.levels.fyi/companies/testco/salaries/software-engineer',
+      range: '$100K-$300K+', currency: '$', levels: [{ level: 'L5', total: '$250K', base: '', stock: '', bonus: '' }],
+    }]);
     const payload = await mcpRequest('tools/call', {
       name: 'mcp_search_job',
       arguments: { keyword: '前端' },
@@ -181,6 +210,9 @@ describe('/mcp 端点', () => {
     const data = JSON.parse(payload.result.content[0].text);
     expect(data.jobs).toHaveLength(3);
     expect(data.metadata.totalResults).toBe(3);
+    // 附带公司薪资参考
+    expect(data.companySalaryRefs).toHaveLength(1);
+    expect(data.companySalaryRefs[0]).toMatchObject({ company: 'A公司', slug: 'testco' });
     // 总结数据：总数/来源/技能/薪资/分组
     expect(data.summary.total).toBe(3);
     expect(Object.keys(data.summary.sources)).toContain('51job');

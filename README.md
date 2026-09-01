@@ -273,6 +273,7 @@ npx -y mcp-jobs --http
 
 - **职位搜索**：关键词 + 城市 + 薪资 + 经验 + 页码，实时爬取多个招聘网站
 - **结果表格**：支持按来源站点筛选、分页浏览（每页 10 条）
+- **公司薪资参考**：搜索结果按公司附带 Levels.fyi 薪资参考（级别/总包），随 JSON/MD 一并导出
 - **数据导出**：一键下载 CSV（含 BOM，Excel 打开中文不乱码）或 JSON
 - **等待提示**：搜索期间显示进度条与已用时间
 
@@ -281,7 +282,7 @@ npx -y mcp-jobs --http
 | 路径 | 说明 |
 |------|------|
 | `/` | Web 搜索界面 |
-| `/api/search?keyword=前端&city=北京&page=1` | 搜索 API（JSON，字段同 MCP 工具） |
+| `/api/search?keyword=前端&city=北京&page=1` | 搜索 API（JSON，字段同 MCP 工具，含 `salaryRefs` 公司薪资参考） |
 | `/mcp` | MCP 端点（StreamableHTTP 无状态模式） |
 | `/health` | 健康检查 |
 

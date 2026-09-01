@@ -14,8 +14,10 @@
 // - LinkedIn（linkedin.com）：❌ 需登录 + 强反爬
 // - Indeed（indeed.com）：❌ 强反爬
 // - Glassdoor（glassdoor.com）：❌ 需登录
-// - Levels.fyi（levels.fyi）：✅ 可抓取（2026-08 实测：SSR 渲染无验证墙，公司薪资表可按级别提取；
-//   属技术薪资数据站而非职位列表站，暂不纳入关键词搜索聚合，需要时可单独接入参考查询）
+// - Levels.fyi（levels.fyi）：✅ 可抓取（2026-08 实测：SSR 渲染无验证墙，公司薪资表可按级别提取）。
+//   属技术薪资数据站而非职位列表站，不参与本列表的关键词搜索聚合；
+//   已通过 levelsFyiService 在搜索响应中附带公司薪资参考（/api/search 的 salaryRefs、
+//   mcp_search_job 的 companySalaryRefs 字段），无需出现在此处
 export const jobSearchUrls = [
   {
     url: 'https://we.51job.com/pc/search',
