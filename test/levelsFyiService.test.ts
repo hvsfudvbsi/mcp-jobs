@@ -27,6 +27,32 @@ describe('resolveCompanySlug 公司名 → slug 映射', () => {
     expect(resolveCompanySlug('Apple Inc.')).toBe('apple');
   });
 
+  it('扩展收录的中小厂/硬件/海外企业（2026-09 逐站验证过 slug）', () => {
+    expect(resolveCompanySlug('比亚迪')).toBe('byd');
+    expect(resolveCompanySlug('比亚迪股份有限公司')).toBe('byd');
+    expect(resolveCompanySlug('蔚来')).toBe('nio');
+    expect(resolveCompanySlug('海康威视')).toBe('hikvision');
+    expect(resolveCompanySlug('米哈游')).toBe('mihoyo');
+    expect(resolveCompanySlug('米哈游科技(上海)')).toBe('mihoyo');
+    expect(resolveCompanySlug('荣耀')).toBe('honor');
+    expect(resolveCompanySlug('货拉拉')).toBe('lalamove');
+    expect(resolveCompanySlug('商汤科技')).toBe('sensetime');
+    expect(resolveCompanySlug('旷视科技')).toBe('megvii');
+    expect(resolveCompanySlug('软通动力')).toBe('isoftstone');
+    expect(resolveCompanySlug('思科')).toBe('cisco');
+    expect(resolveCompanySlug('惠普')).toBe('hp');
+    expect(resolveCompanySlug('Keep')).toBe('keep');
+    expect(resolveCompanySlug('SHEIN')).toBe('shein');
+    expect(resolveCompanySlug('希音')).toBe('shein');
+    expect(resolveCompanySlug('ServiceNow')).toBe('servicenow');
+    expect(resolveCompanySlug('Atlassian')).toBe('atlassian');
+    expect(resolveCompanySlug('Figma')).toBe('figma');
+  });
+
+  it('Levels.fyi 未收录的公司不映射（实测 404 的 slug 不进表）', () => {
+    expect(resolveCompanySlug('小红书')).toBeNull();
+  });
+
   it('未收录的中文公司名返回 null（不瞎猜 slug）', () => {
     expect(resolveCompanySlug('某不知名科技公司')).toBeNull();
     expect(resolveCompanySlug('张三科技有限公司')).toBeNull();

@@ -59,12 +59,30 @@ const COMPANY_ALIASES: Array<[string, string]> = [
   ['小米', 'xiaomi'],
   ['滴滴', 'didi'],
   ['快手', 'kuaishou'],
-  ['小红书', 'xiaohongshu'],
   ['携程', 'ctrip'],
   ['联想', 'lenovo'],
   ['大疆', 'dji'],
   ['OPPO', 'oppo'],
   ['vivo', 'vivo'],
+  // 中小厂/硬件/新消费（2026-09 逐站验证收录，无效 slug 已剔除）
+  ['比亚迪', 'byd'],
+  ['蔚来', 'nio'],
+  ['海康威视', 'hikvision'],
+  ['一加', 'oneplus'],
+  ['传音控股', 'transsion'],
+  ['富士康', 'foxconn'],
+  ['荣耀', 'honor'],
+  ['米哈游', 'mihoyo'],
+  ['货拉拉', 'lalamove'],
+  ['软通动力', 'isoftstone'],
+  ['商汤科技', 'sensetime'],
+  ['旷视科技', 'megvii'],
+  ['云从科技', 'cloudwalk'],
+  ['名创优品', 'miniso'],
+  ['Keep', 'keep'],
+  ['SHEIN', 'shein'],
+  ['希音', 'shein'],
+  ['Anker', 'anker'],
   // 海外
   ['微软', 'microsoft'],
   ['谷歌', 'google'],
@@ -105,6 +123,14 @@ const COMPANY_ALIASES: Array<[string, string]> = [
   ['Databricks', 'databricks'],
   ['Mozilla', 'mozilla'],
   ['Canonical', 'canonical'],
+  // 海外中小厂/企业软件（2026-09 逐站验证收录）
+  ['思科', 'cisco'],
+  ['惠普', 'hp'],
+  ['ServiceNow', 'servicenow'],
+  ['Workday', 'workday'],
+  ['JetBrains', 'jetbrains'],
+  ['Atlassian', 'atlassian'],
+  ['Figma', 'figma'],
   ['bilibili', 'bilibili'],
 ];
 
@@ -159,10 +185,13 @@ export async function extractSalaryPage(page: Page): Promise<{ levels: SalaryLev
     const headText = (t: Element) =>
       Array.from(t.querySelectorAll('thead th')).map((h) => (h.textContent || '').trim()).join(' ');
 
-    // 1) 汇总表：Level Name / Total / Base
+    // 1) 汇总表：列布局固定为 Level Name | Total | Base | Stock | Bonus。
+    //    必须逐列校验第 1 列 Level Name、第 2 列 Total、第 3 列 Base——
+    //    报告表的表头（Company | Level NameTag | Years | Total Compensation (USD) Base | Stock | Bonus）
+    //    会同时包含 Level Name/Total/Base，只做 includes 会把报告表误判成汇总表导致整列错位。
     const summary = tables.find((t) => {
-      const joined = headText(t);
-      return joined.includes('Level Name') && joined.includes('Total') && joined.includes('Base');
+      const heads = Array.from(t.querySelectorAll('thead th')).map((h) => (h.textContent || '').trim());
+      return heads.length >= 3 && heads[0].includes('Level Name') && heads[1].includes('Total') && heads[2].includes('Base');
     });
     let levels: SalaryLevelRow[] = [];
     if (summary) {
@@ -188,11 +217,16 @@ export async function extractSalaryPage(page: Page): Promise<{ levels: SalaryLev
         return joined.includes('Level Name') && joined.includes('Total Compensation');
       });
       if (reports) {
+        // 按表头定位列索引（不同公司报告表列顺序可能不同，不能写死下标）
+        const heads = Array.from(reports.querySelectorAll('thead th')).map((h) => (h.textContent || '').trim());
+        const idxLevel = heads.findIndex((h) => h.includes('Level Name'));
+        const idxTotal = heads.findIndex((h) => h.includes('Total'));
         const agg: Record<string, { totals: number[] }> = {};
         reports.querySelectorAll('tbody tr').forEach((tr) => {
           const cells = Array.from(tr.querySelectorAll('td')).map((c) => (c.textContent || '').trim());
-          const level = (cells[1] || '').split('\n')[0].trim();
-          const totalRaw = (cells[3] || '').split('\n')[0] || '';
+          if (idxLevel < 0 || idxTotal < 0 || cells.length <= Math.max(idxLevel, idxTotal)) return;
+          const level = (cells[idxLevel] || '').split('\n')[0].trim();
+          const totalRaw = (cells[idxTotal] || '').split('\n')[0] || '';
           if (!level) return;
           if (isMasked(cells.join(' '))) return;
           const num = parseFloat(totalRaw.replace(/[^0-9.]/g, ''));
@@ -206,6 +240,11 @@ export async function extractSalaryPage(page: Page): Promise<{ levels: SalaryLev
             : '';
           return { level, total, base: '', stock: '', bonus: '' };
         });
+        // 级别词校验：页面积载期间的瞬时表格列会错位（级别格混入公司/地点），
+        // 只保留短且无 , | 分隔符的级别名，保证兜底数据不出现错位脏数据
+        levels = levels.filter((r) => r.level && r.level.length <= 16 && !/[,|]/.test(r.level));
+        // 错位时 numbers 解析出的 total 可能落在非数字单元格，低于 2 条真实行则放弃兜底
+        if (levels.length < 2) levels = [];
       }
     }
 
@@ -217,24 +256,31 @@ export async function extractSalaryPage(page: Page): Promise<{ levels: SalaryLev
 }
 
 // 提取带重试：Levels.fyi 是 React SSR，domcontentloaded 后汇总表要数秒才渲染完成
-// （实测 ~6s），期间 evaluate 会因导航销毁 context。轮询直到拿到级别数据或超时。
+// （实测 ~6s），hydration 期间表格布局会有瞬时状态（列错位）。
+// 轮询直到「连续两次提取结果一致」才算稳定数据，避免抓到中间态脏数据。
 async function extractWithRetry(
   page: Page,
   maxRetryMs: number
 ): Promise<{ levels: SalaryLevelRow[]; range: string }> {
   const attempts = Math.max(3, Math.ceil(maxRetryMs / 800));
   let last: { levels: SalaryLevelRow[]; range: string } = { levels: [], range: '' };
+  let stable: { levels: SalaryLevelRow[]; range: string; hit: boolean } = { levels: [], range: '', hit: false };
   for (let i = 0; i < attempts; i++) {
     if (i > 0) await page.waitForTimeout(800);
     try {
       const r = await extractSalaryPage(page);
-      last = { levels: r.levels, range: r.range };
-      if (r.levels.length) return last; // 拿到级别数据即可返回
+      const cur = { levels: r.levels, range: r.range };
+      if (r.levels.length && JSON.stringify(cur.levels) === JSON.stringify(last.levels)) {
+        stable = { ...cur, hit: true };
+        return stable; // 连续两次一致的级别数据，判定为稳定终态
+      }
+      last = cur;
     } catch {
       // 导航中 context 被销毁，下一轮重试
     }
   }
-  return last;
+  // 未满足两次一致：退化为最后一次结果（至少 range 可用），避免返回空
+  return stable.hit ? stable : last;
 }
 
 // 真实浏览器路径：单浏览器 + 多页面并发池，避免每公司起一个浏览器
