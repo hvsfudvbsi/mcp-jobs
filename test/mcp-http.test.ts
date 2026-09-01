@@ -95,10 +95,15 @@ describe('HTTP 服务', () => {
     expect(html).toContain('function normalizeTitle');
     expect(html).toContain('id="sumGroups"');
     expect(html).toContain('薪资中位数');
-    // 公司薪资参考面板（Levels.fyi）
+    // 公司薪资参考面板 + 独立公司查询框（Levels.fyi）
     expect(html).toContain('id="salaryPanel"');
     expect(html).toContain('公司薪资参考');
     expect(html).toContain('function renderSalaryRefs');
+    expect(html).toContain('id="salaryQueryBox"');
+    expect(html).toContain('公司薪资查询');
+    expect(html).toContain("fetch('/api/company-salary?'");
+    expect(html).toContain('name="company"');
+    expect(html).toContain('name="role"');
   });
 
   it('OPTIONS 预检返回 204 与 CORS 头', async () => {
@@ -182,6 +187,49 @@ describe('/api/search', () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.error).toContain('爬取服务暂时不可用');
+  });
+});
+
+describe('/api/company-salary', () => {
+  it('按公司名（可带 role 岗位）返回薪资参考', async () => {
+    vi.mocked(queryCompanySalary).mockResolvedValue([{
+      company: '腾讯', slug: 'tencent', role: 'data-scientist',
+      url: 'https://www.levels.fyi/companies/tencent/salaries/data-scientist',
+      range: '$80K-$500K+', currency: '$',
+      levels: [{ level: 'T5', total: '$120K', base: '', stock: '', bonus: '' }],
+    }]);
+    const res = await fetch(`${base}/api/company-salary?company=${encodeURIComponent('腾讯,阿里巴巴')}&role=data-scientist`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.total).toBe(1);
+    expect(body.companySalaryRefs[0]).toMatchObject({ company: '腾讯', role: 'data-scientist' });
+    expect(body.metadata).toMatchObject({ companies: ['腾讯', '阿里巴巴'], role: 'data-scientist' });
+    expect(queryCompanySalary).toHaveBeenCalledWith('腾讯,阿里巴巴', { role: 'data-scientist' });
+  });
+
+  it('不带 role 时按默认岗位查询（单参数调用）', async () => {
+    vi.mocked(queryCompanySalary).mockResolvedValue([]);
+    const res = await fetch(`${base}/api/company-salary?company=${encodeURIComponent('腾讯')}`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.metadata.role).toBe('software-engineer');
+    expect(queryCompanySalary).toHaveBeenCalledWith('腾讯');
+  });
+
+  it('缺少 company 参数返回 400', async () => {
+    const res = await fetch(`${base}/api/company-salary`);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBeTruthy();
+    expect(queryCompanySalary).not.toHaveBeenCalled();
+  });
+
+  it('查询异常时返回 500 且携带错误信息', async () => {
+    vi.mocked(queryCompanySalary).mockRejectedValue(new Error('服务不可用'));
+    const res = await fetch(`${base}/api/company-salary?company=${encodeURIComponent('腾讯')}`);
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toContain('服务不可用');
   });
 });
 

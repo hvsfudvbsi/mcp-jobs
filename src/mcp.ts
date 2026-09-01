@@ -109,6 +109,15 @@ export const WEB_UI_HTML = `<!DOCTYPE html>
     <input class="sm" name="page" type="number" value="1" min="1" style="width:70px">
     <button id="btn" type="submit">搜 索</button>
   </form>
+  <div class="summary" id="salaryQueryBox">
+    <div class="sum-head">💰 公司薪资查询（Levels.fyi）</div>
+    <form id="salaryForm" style="display:flex;flex-wrap:wrap;gap:10px">
+      <input class="sm" name="company" placeholder="公司名，如：腾讯、阿里巴巴（可多个）" required style="flex:1 1 240px">
+      <input class="sm" name="role" placeholder="岗位（可选，如 data-scientist）" style="width:200px">
+      <button id="salaryBtn" type="submit">查 询</button>
+    </form>
+    <div class="status" id="salaryStatus" style="margin-top:10px"></div>
+  </div>
   <div class="status" id="status">提示：搜索会实时爬取多个招聘网站，可能需要 30~90 秒。<span class="elapsed" id="elapsed"></span></div>
   <div class="progress-wrap" id="progress" style="display:none">
     <div class="progress"><div class="bar"></div></div>
@@ -168,6 +177,34 @@ function stopProgress() {
   if (timerId) { clearInterval(timerId); timerId = null; }
   $('#progress').style.display = 'none';
 }
+$('#salaryForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const fd = new FormData(e.target), q = new URLSearchParams();
+  const company = String(fd.get('company') || '').trim();
+  const role = String(fd.get('role') || '').trim();
+  if (!company) return;
+  q.set('company', company);
+  if (role) q.set('role', role);
+  $('#salaryBtn').disabled = true;
+  $('#salaryStatus').textContent = '⏳ 正在查询公司薪资参考…';
+  try {
+    const r = await fetch('/api/company-salary?' + q.toString());
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+    const refs = data.companySalaryRefs || [];
+    renderSalaryRefs(refs);
+    const roleTxt = (data.metadata && data.metadata.role) ? '（岗位 ' + data.metadata.role + '）' : '';
+    if (!refs.length) {
+      $('#salaryStatus').textContent = '⚠️ 未找到可用薪资数据（公司可能未被 Levels.fyi 收录，或站点暂限流）' + roleTxt;
+    } else {
+      $('#salaryStatus').textContent = '✅ 已获取 ' + refs.map(x => x.company).join('、') + roleTxt + ' 的公司薪资参考';
+    }
+  } catch (err) {
+    $('#salaryStatus').textContent = '❌ 查询失败：' + err.message;
+  } finally {
+    $('#salaryBtn').disabled = false;
+  }
+});
 $('#f').addEventListener('submit', async e => {
   e.preventDefault();
   const fd = new FormData(e.target), q = new URLSearchParams();
@@ -810,6 +847,38 @@ export async function runHttpServer(port: number, host: string): Promise<http.Se
         res.end(JSON.stringify({ total: jobs.length, jobs, salaryRefs }));
       } catch (error) {
         console.error('[Web] 搜索失败:', error);
+        res.writeHead(500, { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+      }
+      return;
+    }
+
+    // 公司薪资参考 API：/api/company-salary?company=腾讯,阿里巴巴&role=data-scientist
+    if (req.url?.startsWith('/api/company-salary')) {
+      try {
+        const query = new URL(req.url, 'http://localhost').searchParams;
+        const company = (query.get('company') || '').trim();
+        if (!company) {
+          res.writeHead(400, { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: '缺少 company 参数' }));
+          return;
+        }
+        const role = query.get('role') || undefined;
+        console.error(`[Web] 查询公司薪资: company=${company}${role ? ` role=${role}` : ''}`);
+        const companySalaryRefs = role
+          ? await queryCompanySalary(company, { role })
+          : await queryCompanySalary(company);
+        res.writeHead(200, { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({
+          total: companySalaryRefs.length,
+          companySalaryRefs,
+          metadata: {
+            companies: company.split(/[,，、\s]+/).map((s) => s.trim()).filter(Boolean),
+            role: role || 'software-engineer',
+          },
+        }));
+      } catch (error) {
+        console.error('[Web] 公司薪资查询失败:', error);
         res.writeHead(500, { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
       }
