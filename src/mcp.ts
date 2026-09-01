@@ -17,7 +17,7 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import dotenv from 'dotenv';
-import { searchJobList, crawlJobDetail, enrichSalaryRefs, SearchParams } from './index';
+import { searchJobList, crawlJobDetail, enrichSalaryRefs, queryCompanySalary, SearchParams } from './index';
 import { buildSummary, getSummaryCoreSource } from './services/summaryService';
 
 // 页面内嵌脚本的总结纯逻辑：直接注入 summaryService 编译后源码（单一源码，避免前后端分叉）
@@ -404,6 +404,22 @@ const JOB_DETAIL_TOOL: Tool = {
   },
 };
 
+// 公司薪资参考工具定义（Levels.fyi）
+const COMPANY_SALARY_TOOL: Tool = {
+  name: 'mcp_company_salary',
+  description: '按公司名称查询 Levels.fyi 薪资参考（级别 Total/Base/Stock/Bonus、薪资区间、详情链接）。多个公司名用英文逗号、中文逗号或顿号分隔，如 "腾讯, 阿里巴巴"。',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      company: {
+        type: 'string',
+        description: '公司名称（多个用逗号/顿号分隔）',
+      },
+    },
+    required: ['company'],
+  },
+};
+
 // 职位搜索参数接口定义
 type SearchJobParams = SearchParams & {
   keyword: string; // 使其成为必需参数
@@ -436,6 +452,17 @@ function isValidJobDetailParams(args: unknown): args is JobDetailParams {
   );
 }
 
+// 参数验证函数 - 公司薪资参考
+function isValidCompanySalaryParams(args: unknown): args is { company: string } {
+  return (
+    typeof args === 'object' &&
+    args !== null &&
+    'company' in args &&
+    typeof (args as { company: unknown }).company === 'string' &&
+    (args as { company: string }).company.trim().length > 0
+  );
+}
+
 
 // 创建 MCP 服务器实例的工厂函数（HTTP 无状态模式下每个请求创建独立实例）
 export function createMcpServer(): Server {
@@ -455,7 +482,7 @@ export function createMcpServer(): Server {
 
 // 注册工具列表处理器
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [SEARCH_JOB_TOOL, JOB_DETAIL_TOOL],
+  tools: [SEARCH_JOB_TOOL, JOB_DETAIL_TOOL, COMPANY_SALARY_TOOL],
 }));
 
 // 注册工具调用处理器
@@ -611,6 +638,62 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
     
+      case 'mcp_company_salary': {
+        if (!isValidCompanySalaryParams(args)) {
+          throw new Error('查询公司薪资的参数格式无效，company 为必填公司名称（可用逗号/顿号分隔多个）');
+        }
+
+        const { company } = args as { company: string };
+
+        server.sendLoggingMessage({
+          level: 'info',
+          data: `开始查询公司薪资参考: ${company}`,
+        });
+
+        try {
+          const companySalaryRefs = await queryCompanySalary(company);
+          const companies = company.split(/[,，、\s]+/).map((s) => s.trim()).filter(Boolean);
+
+          server.sendLoggingMessage({
+            level: 'info',
+            data: `公司薪资参考查询完成，命中 ${companySalaryRefs.length} 家`,
+          });
+
+          const responseData = {
+            companySalaryRefs,
+            metadata: {
+              companies,
+              totalResults: companySalaryRefs.length,
+            },
+          };
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(responseData) }],
+            isError: false,
+          };
+        } catch (error) {
+          server.sendLoggingMessage({
+            level: 'error',
+            data: `公司薪资参考查询失败: ${error instanceof Error ? error.message : String(error)}`,
+          });
+
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                companySalaryRefs: [],
+                metadata: {
+                  companies: company.split(/[,，、\s]+/).map((s) => s.trim()).filter(Boolean),
+                  totalResults: 0,
+                  error: '公司薪资参考查询失败，请稍后重试',
+                },
+              }),
+            }],
+            isError: false,
+          };
+        }
+      }
+
       default:
         return {
           content: [{ type: 'text', text: `未知工具: ${name}` }],
@@ -688,7 +771,7 @@ export async function runHttpServer(port: number, host: string): Promise<http.Se
         version: VERSION,
         status: 'running',
         mcpEndpoint: `http://${req.headers.host}/mcp`,
-        tools: ['mcp_search_job', 'mcp_job_detail'],
+        tools: ['mcp_search_job', 'mcp_job_detail', 'mcp_company_salary'],
       }, null, 2));
       return;
     }

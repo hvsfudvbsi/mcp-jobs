@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { searchJobList, enrichSalaryRefs } from '../src/index';
+import { searchJobList, enrichSalaryRefs, queryCompanySalary } from '../src/index';
 import type { CrawlFn } from '../src/index';
 import type { CrawlerData } from '../src/crawler/webCrawler';
 
@@ -132,5 +132,48 @@ describe('enrichSalaryRefs 公司薪资参考聚合', () => {
     vi.mocked(fetchCompanySalaryRefs).mockRejectedValue(new Error('levels.fyi 不可用'));
     const refs = await enrichSalaryRefs([{ company: '腾讯' }]);
     expect(refs).toEqual([]);
+  });
+});
+
+describe('queryCompanySalary 独立公司薪资查询', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('字符串逗号/顿号分隔多个公司，透传 limit', async () => {
+    vi.mocked(fetchCompanySalaryRefs).mockResolvedValue([]);
+    await queryCompanySalary('腾讯, 阿里巴巴', { limit: 2 });
+    expect(fetchCompanySalaryRefs).toHaveBeenCalledWith(
+      [
+        { name: '腾讯', count: 1 },
+        { name: '阿里巴巴', count: 1 },
+      ],
+      expect.objectContaining({ limit: 2 })
+    );
+  });
+
+  it('支持中英文逗号/顿号/空格分隔并去重', async () => {
+    vi.mocked(fetchCompanySalaryRefs).mockResolvedValue([]);
+    await queryCompanySalary(['腾讯', ' 腾讯 ', '阿里', '百度、阿里']);
+    expect(fetchCompanySalaryRefs).toHaveBeenCalledWith(
+      [
+        { name: '腾讯', count: 1 },
+        { name: '阿里', count: 1 },
+        { name: '百度', count: 1 },
+      ],
+      expect.objectContaining({ limit: 3 })
+    );
+  });
+
+  it('空/空白输入返回空数组且不调用服务', async () => {
+    expect(await queryCompanySalary('')).toEqual([]);
+    expect(await queryCompanySalary('  ，、  ')).toEqual([]);
+    expect(await queryCompanySalary([])).toEqual([]);
+    expect(fetchCompanySalaryRefs).not.toHaveBeenCalled();
+  });
+
+  it('服务抛错时降级为空数组', async () => {
+    vi.mocked(fetchCompanySalaryRefs).mockRejectedValue(new Error('boom'));
+    expect(await queryCompanySalary('腾讯')).toEqual([]);
   });
 });

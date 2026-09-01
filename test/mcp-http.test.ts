@@ -8,9 +8,10 @@ vi.mock('../src/index', () => ({
   searchJobList: vi.fn(),
   crawlJobDetail: vi.fn(),
   enrichSalaryRefs: vi.fn(),
+  queryCompanySalary: vi.fn(),
 }));
 
-import { searchJobList, crawlJobDetail, enrichSalaryRefs } from '../src/index';
+import { searchJobList, crawlJobDetail, enrichSalaryRefs, queryCompanySalary } from '../src/index';
 import { runHttpServer } from '../src/mcp';
 import { buildSummary } from '../src/services/summaryService';
 import { evalPageFns } from './helpers';
@@ -63,7 +64,7 @@ describe('HTTP 服务', () => {
     expect(body.name).toBe('mcp-jobs');
     expect(body.version).toBe(pkg.version);
     expect(body.status).toBe('running');
-    expect(body.tools).toEqual(expect.arrayContaining(['mcp_search_job', 'mcp_job_detail']));
+    expect(body.tools).toEqual(expect.arrayContaining(['mcp_search_job', 'mcp_job_detail', 'mcp_company_salary']));
   });
 
   it('首页返回 Web 搜索界面（表单/筛选/分页/导出/进度条）', async () => {
@@ -185,10 +186,10 @@ describe('/api/search', () => {
 });
 
 describe('/mcp 端点', () => {
-  it('tools/list 返回 mcp_search_job 与 mcp_job_detail 两个工具', async () => {
+  it('tools/list 返回 mcp_search_job / mcp_job_detail / mcp_company_salary 三个工具', async () => {
     const payload = await mcpRequest('tools/list');
     const names = payload.result.tools.map((t: { name: string }) => t.name);
-    expect(names).toEqual(expect.arrayContaining(['mcp_search_job', 'mcp_job_detail']));
+    expect(names).toEqual(expect.arrayContaining(['mcp_search_job', 'mcp_job_detail', 'mcp_company_salary']));
   });
 
   it('tools/call mcp_search_job 返回职位列表并附带岗位要求总结', async () => {
@@ -224,6 +225,41 @@ describe('/mcp 端点', () => {
     expect(front.salary).not.toBe('—');
     expect(front.salaryMedian).not.toBe('—');
     expect(data.summary.salaryMin).toBeGreaterThan(0);
+  });
+
+  it('tools/call mcp_company_salary 按公司名直接返回薪资参考', async () => {
+    vi.mocked(queryCompanySalary).mockResolvedValue([
+      {
+        company: '腾讯', slug: 'tencent',
+        url: 'https://www.levels.fyi/companies/tencent/salaries/software-engineer',
+        range: 'CN¥268K-CN¥2.29M+', currency: 'CN¥',
+        levels: [{ level: 'T6', total: 'CN¥500K', base: 'CN¥400K', stock: 'CN¥40K', bonus: 'CN¥60K' }],
+      },
+    ]);
+    const payload = await mcpRequest('tools/call', {
+      name: 'mcp_company_salary',
+      arguments: { company: '腾讯, 阿里巴巴' },
+    });
+    expect(payload.result.isError).toBe(false);
+    const data = JSON.parse(payload.result.content[0].text);
+    expect(data.companySalaryRefs).toHaveLength(1);
+    expect(data.companySalaryRefs[0]).toMatchObject({ company: '腾讯', slug: 'tencent' });
+    expect(data.metadata).toMatchObject({
+      companies: ['腾讯', '阿里巴巴'],
+      totalResults: 1,
+    });
+    expect(queryCompanySalary).toHaveBeenCalledWith('腾讯, 阿里巴巴');
+  });
+
+  it('tools/call mcp_company_salary 缺少 company 参数时报参数错误', async () => {
+    const payload = await mcpRequest('tools/call', {
+      name: 'mcp_company_salary',
+      arguments: {},
+    });
+    expect(payload.result.isError).toBe(true);
+    const text = payload.result.content[0].text;
+    expect(text).toContain('参数格式无效');
+    expect(queryCompanySalary).not.toHaveBeenCalled();
   });
 
   it('tools/call mcp_job_detail 返回详情并附带公司薪资参考（Levels.fyi）', async () => {
