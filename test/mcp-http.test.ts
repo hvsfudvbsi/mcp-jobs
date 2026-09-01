@@ -10,7 +10,7 @@ vi.mock('../src/index', () => ({
   enrichSalaryRefs: vi.fn(),
 }));
 
-import { searchJobList, enrichSalaryRefs } from '../src/index';
+import { searchJobList, crawlJobDetail, enrichSalaryRefs } from '../src/index';
 import { runHttpServer } from '../src/mcp';
 import { buildSummary } from '../src/services/summaryService';
 import { evalPageFns } from './helpers';
@@ -224,6 +224,56 @@ describe('/mcp 端点', () => {
     expect(front.salary).not.toBe('—');
     expect(front.salaryMedian).not.toBe('—');
     expect(data.summary.salaryMin).toBeGreaterThan(0);
+  });
+
+  it('tools/call mcp_job_detail 返回详情并附带公司薪资参考（Levels.fyi）', async () => {
+    const url = 'https://m.zhipin.com/job_detail/7d5caa6504e27b8b1HF839S1FVtU.html';
+    vi.mocked(crawlJobDetail).mockResolvedValue({
+      company: '腾讯', title: 'web前端开发', salary: '30-50K',
+      jobDescription: '负责xxxx', companyDescription: '腾讯科技',
+    });
+    vi.mocked(enrichSalaryRefs).mockResolvedValue([{
+      company: '腾讯', slug: 'tencent',
+      url: 'https://www.levels.fyi/companies/tencent/salaries/software-engineer',
+      range: 'CN¥268K-CN¥2.29M+', currency: 'CN¥',
+      levels: [{ level: 'T5', total: 'CN¥500K', base: '', stock: '', bonus: '' }],
+    }]);
+    const payload = await mcpRequest('tools/call', {
+      name: 'mcp_job_detail',
+      arguments: { url },
+    });
+    expect(payload.result.isError).toBe(false);
+    const data = JSON.parse(payload.result.content[0].text);
+    expect(data.jobDetail).toMatchObject({ company: '腾讯', title: 'web前端开发' });
+    expect(data.metadata.url).toBe(url);
+    // 详情页带公司名时附带薪资参考
+    expect(data.companySalaryRefs).toHaveLength(1);
+    expect(data.companySalaryRefs[0]).toMatchObject({ company: '腾讯', slug: 'tencent' });
+    expect(enrichSalaryRefs).toHaveBeenCalledWith([{ company: '腾讯' }]);
+  });
+
+  it('tools/call mcp_job_detail 详情页无公司名时薪资参考为空数组', async () => {
+    vi.mocked(crawlJobDetail).mockResolvedValue({
+      title: '某职位', jobDescription: 'xxxx',
+    });
+    vi.mocked(enrichSalaryRefs).mockResolvedValue([]);
+    const payload = await mcpRequest('tools/call', {
+      name: 'mcp_job_detail',
+      arguments: { url: 'https://m.zhipin.com/job_detail/abc.html' },
+    });
+    expect(payload.result.isError).toBe(false);
+    const data = JSON.parse(payload.result.content[0].text);
+    expect(data.jobDetail.title).toBe('某职位');
+    expect(data.companySalaryRefs).toEqual([]);
+    expect(enrichSalaryRefs).toHaveBeenCalledWith([]);
+    // 详情找不到时同样返回结构完整且薪资参考为空
+    vi.mocked(crawlJobDetail).mockResolvedValue(null);
+    const payload2 = await mcpRequest('tools/call', {
+      name: 'mcp_job_detail',
+      arguments: { url: 'https://example.com/unknown' },
+    });
+    const data2 = JSON.parse(payload2.result.content[0].text);
+    expect(data2.jobDetail).toBeNull();
   });
 });
 

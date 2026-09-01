@@ -293,7 +293,11 @@ export const crawlerConfigs: SiteConfig[] = [
         handler: async (currentData, value, element) => {
           const jobDescription = await element.$eval('.job-sec > .text', el => el.textContent?.trim() || '');
           const companyDescription = await element.$eval('.job-sec > .detail-text', el => el.textContent?.trim() || '');
-          return { jobDescription, companyDescription };         
+          // 公司名/职位名/薪资（多级兜底选择器，命中不了则为空 → 不附带薪资参考，优雅降级）
+          const company = await element.$eval('.company-info .name, .company-name, .job-detail [class*="company"] [class*="name"], a[class*="company"]', el => el.textContent?.trim() || '').catch(() => '');
+          const title = await element.$eval('.job-title, .name-box h1, h1', el => el.textContent?.trim() || '').catch(() => '');
+          const salary = await element.$eval('.job-salary, [class*="salary"], .salary', el => el.textContent?.trim() || '').catch(() => '');
+          return { jobDescription, companyDescription, company, title, salary };         
         }
       }
     },
@@ -313,7 +317,9 @@ export const crawlerConfigs: SiteConfig[] = [
         handler: async (currentData, value, element) => {
           const jobDescription = await element.$eval('.job-intro-container dd', el => el.textContent?.trim() || '');
           const companyDescription = await element.$eval('.company-intro-container .ellipsis-3', el => el.textContent?.trim() || '');
-          return { jobDescription, companyDescription };         
+          // 公司名（多级兜底，命中不了则为空，不附带薪资参考）
+          const company = await element.$eval('.company-intro-container .company-name, .company-name, .job-intro-container h3, .company-intro-container h3, h1.company-name', el => el.textContent?.trim() || '').catch(() => '');
+          return { jobDescription, companyDescription, company };         
         }
       }
     }

@@ -391,7 +391,7 @@ const SEARCH_JOB_TOOL: Tool = {
 // 职位详情工具定义
 const JOB_DETAIL_TOOL: Tool = {
   name: 'mcp_job_detail',
-  description: '获取职位详情信息，包括职位名称、公司名称、薪资范围、工作地点、发布时间等。',
+  description: '获取职位详情信息，包括职位名称、公司名称、薪资范围、工作地点、发布时间等；职位页能解析出公司时，附带该公司 Levels.fyi 薪资参考（companySalaryRefs 字段）。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -575,8 +575,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             data: `职位详情获取成功: ${detail.title || '未知职位'}`,
           });
 
+          // 详情页能解析出公司名时，附带公司薪资参考（Levels.fyi）；失败自动降级为空数组
+          const companySalaryRefs = await enrichSalaryRefs(detail.company ? [{ company: detail.company }] : []);
+
           const responseData = {
             jobDetail: detail,
+            companySalaryRefs,
             metadata: {
               url: url,
             }
